@@ -49,6 +49,13 @@ export function tileFor(clip: Clip): Tile {
 function initials(title: string): string {
   const words = title.replace(/[^\p{L}\p{N} ]/gu, ' ').trim().split(/\s+/).filter(Boolean);
   if (!words.length) return '??';
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return (words[0][0] + words[1][0]).toUpperCase();
+
+  // Hundreds of sound effects are named `100 blowup`, `100 bubbles`, and taking
+  // initials literally turns a whole screen into 1B / 1B / 1C. The leading id
+  // carries no meaning, so skip it — unless it is all there is.
+  const meaningful = words.filter((w) => !/^\d+$/.test(w));
+  const use = meaningful.length ? meaningful : words;
+
+  if (use.length === 1) return use[0].slice(0, 2).toUpperCase();
+  return (use[0][0] + use[1][0]).toUpperCase();
 }

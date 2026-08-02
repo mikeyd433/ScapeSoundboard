@@ -1,8 +1,10 @@
 import type { RefObject } from 'react';
 import {
   DURATION_FILTERS,
+  SORT_MODES,
   SPRITE_FILTERS,
   type DurationFilter,
+  type SortMode,
   type Settings,
   type SpriteFilter,
 } from '../types';
@@ -158,6 +160,19 @@ export function Header({
           {SPRITE_FILTERS.map((f) => (
             <option key={f.value} value={f.value}>
               {f.value === 'none' ? `${f.label} (${formatCount(noSpriteCount)})` : f.label}
+            </option>
+          ))}
+        </select>
+
+        <select
+          className="select"
+          value={settings.sortMode}
+          onChange={(e) => onSettings({ sortMode: e.target.value as SortMode })}
+          title="Ordering when nothing is being searched for"
+        >
+          {SORT_MODES.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
             </option>
           ))}
         </select>

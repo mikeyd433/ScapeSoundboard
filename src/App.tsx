@@ -267,11 +267,32 @@ export default function App() {
           matchesDuration(durationOf(c), durationFilter),
       );
       if (ranks) {
-        out = out
+        // A live search outranks any sort preference — relevance is the order.
+        return out
           .filter((c) => ranks.has(c.id))
           .sort((a, b) => ranks.get(a.id)! - ranks.get(b.id)!);
       }
-      return out;
+
+      const byTitle = (a: Clip, b: Clip) =>
+        a.title.localeCompare(b.title) || a.displayFile.localeCompare(b.displayFile);
+
+      switch (settings.sortMode) {
+        case 'artwork':
+          // Recognisable pads first; alphabetical within each group so the
+          // ordering is still stable and scannable.
+          return out
+            .slice()
+            .sort((a, b) => Number(hasSprite(b)) - Number(hasSprite(a)) || byTitle(a, b));
+        case 'shortest':
+          return out
+            .slice()
+            .sort((a, b) => (durationOf(a) ?? Infinity) - (durationOf(b) ?? Infinity));
+        case 'longest':
+          return out.slice().sort((a, b) => (durationOf(b) ?? -1) - (durationOf(a) ?? -1));
+        case 'az':
+        default:
+          return out;
+      }
     },
     [
       settings.currentOnly,
@@ -282,6 +303,7 @@ export default function App() {
       ranks,
       spriteFilter,
       hasSprite,
+      settings.sortMode,
     ],
   );
 

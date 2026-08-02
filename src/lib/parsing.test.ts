@@ -3,9 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { addToBoard, makeBoard, resizeBoard, slotForKey, swapSlots } from './boards';
 import { formatBytes, formatDuration } from './format';
 
-import { extractSounds, guessSubject } from './sprites';
+import { extractSounds, guessSubjects } from './sprites';
 import { extensionOf, normFile, parseName, slugify } from './wiki';
 import { buildIndex, parseQuery, searchIndex } from './search';
+import { tileFor } from './sprite';
 import type { Clip } from '../types';
 
 /**
@@ -117,24 +118,46 @@ describe('extractSounds', () => {
   });
 });
 
-describe('guessSubject', () => {
+describe('guessSubjects', () => {
   it('strips action suffixes', () => {
-    expect(guessSubject('Icefiend attack.wav')).toBe('Icefiend');
-    expect(guessSubject('Windchimes playing.wav')).toBe('Windchimes');
-    expect(guessSubject('Brine sabre attack (stab).wav')).toBe('Brine sabre');
+    expect(guessSubjects('Icefiend attack.wav')).toEqual(['Icefiend']);
+    expect(guessSubjects('Windchimes playing.wav')).toEqual(['Windchimes']);
+    expect(guessSubjects('Brine sabre attack (stab).wav')).toEqual(['Brine sabre', 'Brine']);
   });
 
   it('strips the Equip verb and leaves the item to be verified', () => {
     // "whip" resolves to a real article and survives; "fun" does not and gets
     // dropped by the verification pass rather than by a blanket rule here.
-    expect(guessSubject('Equip whip.wav')).toBe('whip');
-    expect(guessSubject('Equip fun.wav')).toBe('fun');
-    expect(guessSubject('Equip dragon claws.ogg')).toBe('dragon claws');
+    expect(guessSubjects('Equip whip.wav')).toEqual(['whip']);
+    expect(guessSubjects('Equip fun.wav')).toEqual(['fun']);
+    expect(guessSubjects('Equip dragon claws.ogg')).toEqual(['dragon claws', 'dragon']);
   });
 
-  it('passes bare spell and prayer names through', () => {
-    expect(guessSubject('Fire Blast.ogg')).toBe('Fire Blast');
-    expect(guessSubject('Piety.ogg')).toBe('Piety');
+  it('digs the entity out of an engine-style name', () => {
+    // Straight from the real library: the leading id and the unknown verb both
+    // defeat a literal lookup, but "Goblin" is right there.
+    expect(guessSubjects('100 goblin falls.ogg')).toEqual(['goblin falls', 'goblin']);
+    expect(guessSubjects('100 ogre swim.ogg')).toEqual(['ogre swim', 'ogre']);
+    expect(guessSubjects('100 hellcat into cat.ogg')).toEqual([
+      'hellcat into cat',
+      'hellcat into',
+      'hellcat',
+    ]);
+  });
+
+  it('offers the most specific name first', () => {
+    // "Fire Blast" must beat "Fire", so verification never settles for the
+    // shorter article when the real one exists.
+    expect(guessSubjects('Fire Blast.ogg')[0]).toBe('Fire Blast');
+    expect(guessSubjects('Piety.ogg')).toEqual(['Piety']);
+  });
+
+  it('drops fragments too short to mean anything', () => {
+    expect(guessSubjects('2H crush.ogg')).toEqual(['crush']);
+  });
+
+  it('bounds how many candidates one file contributes', () => {
+    expect(guessSubjects('a very long engine sound name here.ogg').length).toBeLessThanOrEqual(4);
   });
 });
 
@@ -203,6 +226,48 @@ describe('search over descriptions', () => {
   it('still works when no description was ever collected', () => {
     const index = buildIndex([clip({ id: 'a', title: 'Icefiend attack' })]);
     expect(searchIndex(index, parseQuery('icefiend')).map((c) => c.id)).toEqual(['a']);
+  });
+});
+
+describe('generated tiles', () => {
+  const named = (title: string): Clip => ({
+    id: title,
+    title,
+    context: null,
+    variant: null,
+    isCurrent: true,
+    kind: 'sfx',
+    file: null,
+    remoteUrl: '',
+    displayFile: `${title}.ogg`,
+    bytes: 0,
+    duration: null,
+    sha1: '',
+    desc: null,
+    soundId: null,
+    configName: null,
+    sprite: null,
+  });
+
+  it('skips a leading numeric id when picking initials', () => {
+    // Otherwise a whole screen of "100 ..." sounds reads 1B / 1B / 1C.
+    expect(tileFor(named('100 blowup')).label).toBe('BL');
+    expect(tileFor(named('100 cauldron shake')).label).toBe('CS');
+    expect(tileFor(named('100 goblin falls')).label).toBe('GF');
+  });
+
+  it('keeps a meaningful alphanumeric token', () => {
+    expect(tileFor(named('2H crush')).label).toBe('2C');
+  });
+
+  it('falls back when the name is only digits', () => {
+    expect(tileFor(named('100')).label).toBe('10');
+  });
+
+  it('is stable for the same title', () => {
+    expect(tileFor(named('Whip attack')).background).toBe(
+      tileFor(named('Whip attack')).background,
+    );
   });
 });
 

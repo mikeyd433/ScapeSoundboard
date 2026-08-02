@@ -77,6 +77,7 @@ export type Settings = {
   searchAll: boolean;
   /** Drag from anywhere on a pad, not just the grab handle (spec §8, B). */
   gestureDrag: boolean;
+  sortMode: SortMode;
 };
 
 export type DurationFilter = 'any' | 'lt2' | '2to8' | '8to60' | 'gt60';
@@ -114,6 +115,20 @@ export const SPRITE_FILTERS: { value: SpriteFilter; label: string }[] = [
   { value: 'none', label: 'No sprite' },
 ];
 
+/**
+ * Straight alphabetical opens the board on hundreds of `100 …` engine sounds,
+ * which buries everything recognisable. Artwork-first is the better default:
+ * a pad with an icon is one you can identify at a glance.
+ */
+export type SortMode = 'artwork' | 'az' | 'shortest' | 'longest';
+
+export const SORT_MODES: { value: SortMode; label: string }[] = [
+  { value: 'artwork', label: 'Artwork first' },
+  { value: 'az', label: 'A–Z' },
+  { value: 'shortest', label: 'Shortest first' },
+  { value: 'longest', label: 'Longest first' },
+];
+
 /** Per-pad tweaks from the right-click menu. */
 export type PadSetting = { gain: number; rate: number };
 
@@ -129,4 +144,5 @@ export const DEFAULT_SETTINGS: Settings = {
   padSize: 116,
   searchAll: false,
   gestureDrag: false,
+  sortMode: 'artwork',
 };

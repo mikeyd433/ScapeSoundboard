@@ -122,15 +122,43 @@ async function sfxLineIndex(
 const ACTIONS =
   /\s+(special attack( \d+)?|attack|hit|death|ringing|playing|growl|noise|opening|closing|scanning|swinging|snoring)(\s*\(.*\))?$/i;
 
-export function guessSubject(filename: string): string | null {
+/** Engine-style prefixes: `100 goblin falls`, `2H crush`. */
+const LEADING_ID = /^\d+[a-z]?\s+/i;
+
+/** How many candidates one filename may contribute, to bound the API cost. */
+const MAX_CANDIDATES = 4;
+
+/**
+ * Ordered article-name candidates for a filename, longest first.
+ *
+ * A real example from the library: `100 goblin falls.ogg` names a Goblin, but
+ * the leading id defeats a literal lookup and `falls` is not in the known
+ * action list, so the old single-guess version produced "100 goblin falls",
+ * failed verification, and dropped to a tile. Offering progressively shorter
+ * prefixes — "goblin falls", then "goblin" — lets verification find the entity.
+ *
+ * Longest first matters: `Fire Blast.ogg` must resolve to the spell, not to
+ * "Fire".
+ */
+export function guessSubjects(filename: string): string[] {
   let n = filename.replace(/\.(wav|ogg|mp3)$/i, '').replace(/\s*\(unused\)$/i, '');
   // "Equip fun" names no entity, but "Equip whip" names a whip. Strip the verb
   // and let title verification throw out the ones that resolve to nothing —
   // that is exactly what the verification pass is for. Discarding every Equip
   // file to dodge one pathological case costs hundreds of real matches.
   n = n.replace(/^Equip\s+/i, '');
+  n = n.replace(LEADING_ID, '');
   n = n.replace(ACTIONS, '').trim();
-  return n.length >= 2 ? n : null;
+
+  const words = n.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (let len = words.length; len >= 1; len--) {
+    const candidate = words.slice(0, len).join(' ');
+    // Two-letter fragments match half the wiki; they are noise, not candidates.
+    if (candidate.length >= 3 && !out.includes(candidate)) out.push(candidate);
+    if (out.length >= MAX_CANDIDATES) break;
+  }
+  return out;
 }
 
 /** Keep only the guesses that resolve to a real article. */
@@ -349,7 +377,15 @@ export async function buildSprites(
   const index = await sfxLineIndex(onProgress, signal);
 
   // Tier 1 assignments.
-  const subjectOf = new Map<string, { subject: string; alternates: string[]; source: 'sfxline' | 'filename' }>();
+  const subjectOf = new Map<
+    string,
+    {
+      subject: string;
+      alternates: string[];
+      source: 'sfxline' | 'filename';
+      confidence: 'high' | 'medium' | 'low';
+    }
+  >();
   const descriptions: Record<string, string> = {};
   const undocumented: Clip[] = [];
 
@@ -361,22 +397,42 @@ export async function buildSprites(
     if (hit && hit.articles.length) {
       // Shortest title is a decent representative when a sound is shared.
       const sorted = [...hit.articles].sort((a, b) => a.length - b.length);
-      subjectOf.set(clip.id, { subject: sorted[0], alternates: sorted.slice(1), source: 'sfxline' });
+      subjectOf.set(clip.id, {
+        subject: sorted[0],
+        alternates: sorted.slice(1),
+        source: 'sfxline',
+        confidence: 'high',
+      });
     } else {
       undocumented.push(clip);
     }
   }
 
-  // Tier 2 for the rest.
-  const guesses = new Map<string, string>();
+  // Tier 2 for the rest, now offering several candidates per file.
+  const candidates = new Map<string, string[]>();
   for (const clip of undocumented) {
-    const g = guessSubject(clip.displayFile);
-    if (g) guesses.set(clip.id, g);
+    const list = guessSubjects(clip.displayFile);
+    if (list.length) candidates.set(clip.id, list);
   }
-  const verified = await verifyTitles([...guesses.values()], onProgress, signal);
-  for (const [clipId, guess] of guesses) {
-    const target = verified.get(guess);
-    if (target) subjectOf.set(clipId, { subject: target, alternates: [], source: 'filename' });
+
+  const verified = await verifyTitles(
+    [...new Set([...candidates.values()].flat())],
+    onProgress,
+    signal,
+  );
+
+  for (const [clipId, list] of candidates) {
+    // First match wins, and the list is longest-first, so the most specific
+    // article that actually exists is the one chosen.
+    const i = list.findIndex((c) => verified.has(c));
+    if (i < 0) continue;
+    subjectOf.set(clipId, {
+      subject: verified.get(list[i])!,
+      alternates: [],
+      source: 'filename',
+      // Having to shorten the name means we guessed at the entity, so say so.
+      confidence: i === 0 ? 'medium' : 'low',
+    });
   }
 
   // Tier 3: subject -> artwork.
@@ -400,7 +456,7 @@ export async function buildSprites(
       subject: info.subject,
       alternates: info.alternates,
       source: info.source,
-      confidence: info.source === 'sfxline' ? 'high' : 'medium',
+      confidence: info.confidence,
     };
     if (!seenDest.has(dest)) {
       seenDest.add(dest);
