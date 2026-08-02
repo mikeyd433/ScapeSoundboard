@@ -123,7 +123,7 @@ describe('guessSubjects', () => {
   it('strips action suffixes', () => {
     expect(guessSubjects('Icefiend attack.wav')).toEqual(['Icefiend']);
     expect(guessSubjects('Windchimes playing.wav')).toEqual(['Windchimes']);
-    expect(guessSubjects('Brine sabre attack (stab).wav')).toEqual(['Brine sabre', 'Brine']);
+    expect(guessSubjects('Brine sabre attack (stab).wav')).toContain('Brine sabre');
   });
 
   it('strips the Equip verb and leaves the item to be verified', () => {
@@ -131,19 +131,36 @@ describe('guessSubjects', () => {
     // dropped by the verification pass rather than by a blanket rule here.
     expect(guessSubjects('Equip whip.wav')).toEqual(['whip']);
     expect(guessSubjects('Equip fun.wav')).toEqual(['fun']);
-    expect(guessSubjects('Equip dragon claws.ogg')).toEqual(['dragon claws', 'dragon']);
+    expect(guessSubjects('Equip dragon claws.ogg')).toContain('dragon claws');
   });
 
   it('digs the entity out of an engine-style name', () => {
     // Straight from the real library: the leading id and the unknown verb both
     // defeat a literal lookup, but "Goblin" is right there.
-    expect(guessSubjects('100 goblin falls.ogg')).toEqual(['goblin falls', 'goblin']);
-    expect(guessSubjects('100 ogre swim.ogg')).toEqual(['ogre swim', 'ogre']);
-    expect(guessSubjects('100 hellcat into cat.ogg')).toEqual([
-      'hellcat into cat',
-      'hellcat into',
-      'hellcat',
-    ]);
+    expect(guessSubjects('100 goblin falls.ogg')).toContain('goblin');
+    expect(guessSubjects('100 ogre swim.ogg')).toContain('ogre');
+  });
+
+  it('offers every word, not just leading phrases', () => {
+    // The entity is often not at the start. Prefix-only candidates would try
+    // "eat rockcake" then "eat" and never reach the thing being eaten.
+    const cake = guessSubjects('100 eat rockcake.ogg');
+    expect(cake).toContain('rockcake');
+    expect(cake.indexOf('rockcake')).toBeLessThan(cake.indexOf('eat'));
+
+    expect(guessSubjects('100 iron door open underwater.ogg')).toContain('iron door');
+    expect(guessSubjects('100 sizzle gloves.ogg')).toContain('gloves');
+  });
+
+  it('prefers the more distinctive word', () => {
+    // Both "cat" and "hellcat" are real articles; the longer one is the answer.
+    const c = guessSubjects('100 cat into hellcat.ogg');
+    expect(c.indexOf('hellcat')).toBeLessThan(c.indexOf('cat'));
+  });
+
+  it('does not offer connecting words on their own', () => {
+    expect(guessSubjects('100 cat into hellcat.ogg')).not.toContain('into');
+    expect(guessSubjects('100 cauldron shake loop.ogg')).not.toContain('loop');
   });
 
   it('offers the most specific name first', () => {
@@ -158,7 +175,7 @@ describe('guessSubjects', () => {
   });
 
   it('bounds how many candidates one file contributes', () => {
-    expect(guessSubjects('a very long engine sound name here.ogg').length).toBeLessThanOrEqual(4);
+    expect(guessSubjects('a very long engine sound name here.ogg').length).toBeLessThanOrEqual(6);
   });
 });
 

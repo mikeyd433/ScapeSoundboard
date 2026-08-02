@@ -127,7 +127,17 @@ const ACTIONS =
 const LEADING_ID = /^\d+[a-z]?\s+/i;
 
 /** How many candidates one filename may contribute, to bound the API cost. */
-const MAX_CANDIDATES = 4;
+const MAX_CANDIDATES = 6;
+
+/**
+ * Words that are never the entity. Filtered out of single-word candidates only
+ * — they are fine inside a longer phrase.
+ */
+const STOPWORDS = new Set([
+  'the', 'and', 'for', 'into', 'onto', 'out', 'off', 'from', 'with', 'over',
+  'under', 'first', 'second', 'third', 'loop', 'work', 'wprk', 'initial',
+  'new', 'old', 'big', 'small', 'long', 'short', 'start', 'stop', 'end',
+]);
 
 /**
  * Ordered article-name candidates for a filename, longest first.
@@ -153,13 +163,26 @@ export function guessSubjects(filename: string): string[] {
 
   const words = n.split(/\s+/).filter(Boolean);
   const out: string[] = [];
-  for (let len = words.length; len >= 1; len--) {
-    const candidate = words.slice(0, len).join(' ');
+  const add = (c: string) => {
     // Two-letter fragments match half the wiki; they are noise, not candidates.
-    if (candidate.length >= 3 && !out.includes(candidate)) out.push(candidate);
-    if (out.length >= MAX_CANDIDATES) break;
+    if (c.length >= 3 && !out.includes(c)) out.push(c);
+  };
+
+  // Multi-word prefixes first — the most specific reading of the name.
+  for (let len = words.length; len >= 2; len--) add(words.slice(0, len).join(' '));
+
+  // Then adjacent pairs, which catch an entity that is not at the start:
+  // "100 iron door open underwater" is about an iron door.
+  for (let i = 1; i + 1 < words.length; i++) add(`${words[i]} ${words[i + 1]}`);
+
+  // Then single words, longest first. Length is a decent proxy for how
+  // distinctive a word is, and it is what makes "100 cat into hellcat" resolve
+  // to Hellcat rather than to Cat.
+  for (const w of [...words].sort((a, b) => b.length - a.length)) {
+    if (!STOPWORDS.has(w.toLowerCase())) add(w);
   }
-  return out;
+
+  return out.slice(0, MAX_CANDIDATES);
 }
 
 /** Keep only the guesses that resolve to a real article. */
@@ -450,13 +473,17 @@ export async function buildSprites(
   );
 
   for (const [clipId, list] of candidates) {
-    // First match wins, and the list is longest-first, so the most specific
-    // article that actually exists is the one chosen.
+    // Candidates are ordered most-specific-first, so the first that resolves is
+    // the pick. The rest are kept: several words in a filename can each name a
+    // real article, and which one is *right* is a judgement call the person
+    // looking at the pad can make better than a heuristic.
+    const resolved = [...new Set(list.filter((c) => verified.has(c)).map((c) => verified.get(c)!))];
+    if (!resolved.length) continue;
+
     const i = list.findIndex((c) => verified.has(c));
-    if (i < 0) continue;
     subjectOf.set(clipId, {
-      subject: verified.get(list[i])!,
-      alternates: [],
+      subject: resolved[0],
+      alternates: resolved.slice(1),
       source: 'filename',
       // Having to shorten the name means we guessed at the entity, so say so.
       confidence: i === 0 ? 'medium' : 'low',

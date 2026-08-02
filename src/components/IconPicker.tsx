@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { guessSubjects } from '../lib/sprites';
 import { api, slugify } from '../lib/wiki';
 import type { Clip, SpriteInfo } from '../types';
 
@@ -22,6 +23,21 @@ export function IconPicker({ clip, onPick, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * Every word of the filename that might name something, plus whatever else
+   * the matcher already verified for this clip. A filename like
+   * "100 rockcake burn fingers" has three plausible subjects in it and no way
+   * to know which is meant — so offer all of them rather than guess.
+   */
+  const suggestions = useMemo(() => {
+    const fromMatcher = clip.sprite?.alternates ?? [];
+    const fromName = guessSubjects(clip.displayFile);
+    const current = clip.sprite?.subject;
+    return [...new Set([...fromMatcher, ...fromName])]
+      .filter((s) => s.toLowerCase() !== current?.toLowerCase())
+      .slice(0, 8);
+  }, [clip]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -110,6 +126,23 @@ export function IconPicker({ clip, onPick, onClose }: Props) {
           placeholder="Search the wiki for an image…"
           spellCheck={false}
         />
+
+        {suggestions.length > 0 && (
+          <>
+            <div className="menu-label">From this sound&rsquo;s name</div>
+            <div className="variant-chips">
+              {suggestions.map((sug) => (
+                <button
+                  key={sug}
+                  className={sug.toLowerCase() === query.trim().toLowerCase() ? 'chip on' : 'chip'}
+                  onClick={() => setQuery(sug)}
+                >
+                  {sug}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
         {error && <p className="fine">Search failed: {error}</p>}
         {busy && <p className="fine dim">Searching…</p>}
