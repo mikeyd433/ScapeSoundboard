@@ -10,7 +10,7 @@ repository.
 
 ## Install
 
-Windows installers are published on the
+Windows installer published on the
 [releases page](https://github.com/mikeyd433/ScapeSoundboard/releases/latest)
 and linked from [dabingabongo.com/downloads](https://dabingabongo.com/downloads).
 
@@ -119,15 +119,23 @@ node scripts/make-icons.mjs
 
 ### Releasing
 
-Push a tag and CI builds and publishes the Windows installers:
+Push a tag and CI builds and publishes the Windows installer:
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.2.1 && git push origin v0.2.1
 ```
 
-The installers are uploaded under stable filenames
-(`OSRS-Soundboard-Setup-x64.exe`, `OSRS-Soundboard-x64.msi`) so the downloads
-page can link to `/releases/latest/download/<name>` and never go stale.
+Pushing a `release/v0.2.1` branch does the same thing and creates the tag at
+that commit — the route to use from an environment that can push branches but
+not tags.
+
+The installer is uploaded under a stable filename
+(`OSRS-Soundboard-Setup-x64.exe`) so the downloads page can link to
+`/releases/latest/download/<name>` and never go stale.
+
+Only NSIS is built. An MSI would be for Group Policy / Intune style deployment,
+which is not what this app is for, and offering two downloads only asks the
+reader to make a decision that does not matter.
 
 ## Notes on the implementation
 

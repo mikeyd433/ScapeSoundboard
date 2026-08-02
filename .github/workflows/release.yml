@@ -67,23 +67,22 @@ jobs:
         working-directory: src-tauri
         run: cargo test --lib
 
-      - name: Build installers
-        run: npm run tauri -- build --target x86_64-pc-windows-msvc --bundles nsis,msi
+      # NSIS only. An MSI would exist for Group Policy / Intune style deployment,
+      # which is not what this app is for, and a second download on the page is
+      # just a decision nobody wants to make.
+      - name: Build installer
+        run: npm run tauri -- build --target x86_64-pc-windows-msvc --bundles nsis
 
-      - name: Collect artifacts under stable names
+      - name: Collect artifact under a stable name
         shell: pwsh
         run: |
           $bundle = "src-tauri/target/x86_64-pc-windows-msvc/release/bundle"
           New-Item -ItemType Directory -Force -Path dist-installers | Out-Null
 
           $nsis = Get-ChildItem "$bundle/nsis/*.exe" | Select-Object -First 1
-          $msi  = Get-ChildItem "$bundle/msi/*.msi"  | Select-Object -First 1
-
           if (-not $nsis) { throw "NSIS installer not found under $bundle/nsis" }
-          if (-not $msi)  { throw "MSI installer not found under $bundle/msi" }
 
           Copy-Item $nsis "dist-installers/OSRS-Soundboard-Setup-x64.exe"
-          Copy-Item $msi  "dist-installers/OSRS-Soundboard-x64.msi"
           Get-ChildItem dist-installers | Format-Table Name, Length
 
       - name: Upload artifacts
@@ -106,9 +105,8 @@ jobs:
           body: |
             Windows installer for the OSRS Soundboard.
 
-            `OSRS-Soundboard-Setup-x64.exe` is the normal choice — it adds a desktop
-            shortcut and a Start menu entry. The `.msi` is there for anyone who
-            prefers it or needs to deploy it.
+            Run `OSRS-Soundboard-Setup-x64.exe`. It installs for the current user
+            with no admin prompt, and adds a desktop shortcut and a Start menu entry.
 
             The app ships empty and downloads its own audio library from the
             OSRS Wiki on first run. Nothing is bundled with the installer.
