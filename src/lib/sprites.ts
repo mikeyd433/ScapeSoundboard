@@ -171,13 +171,17 @@ export function guessSubjects(filename: string): string[] {
   n = n.replace(/^Equip\s+/i, '');
   n = n.replace(LEADING_ID, '');
 
-  // Peel take numbers and action words together, repeatedly. `Aldarin bear
-  // growl 03` needs the "03" gone before "growl" is even at the end, and one
-  // pass in a fixed order would only ever remove one of them.
+  // Peel parentheticals, take numbers, action words and trailing punctuation
+  // together, repeatedly. `Cooking Level Up! (Unlocks) (v1)` needs three of
+  // these removed before "Cooking" is reachable, and `Aldarin bear growl 03`
+  // needs the "03" gone before "growl" is even at the end. One pass in a fixed
+  // order can only ever remove one of them.
   for (let prev = ''; prev !== n; ) {
     prev = n;
+    n = n.replace(/\s*\([^()]*\)\s*$/, '').trim();
     n = n.replace(TRAILING_INDEX, '').trim();
     n = n.replace(ACTIONS, '').trim();
+    n = n.replace(/[!?.]+$/, '').trim();
   }
 
   const words = n.split(/\s+/).filter(Boolean);
@@ -573,9 +577,26 @@ export async function buildSprites(
     }
   }
 
-  // Tier 2 for the rest, now offering several candidates per file.
+  // Curated rules come before filename derivation. A rule that says "this is a
+  // Cooking level-up, use the Cooking icon" is a stronger statement than
+  // whatever a guessed article title happens to resolve to, and running it last
+  // meant a weak tier-2 hit silently outranked it.
+  for (const clip of undocumented) {
+    const rule = matchRule(clip.displayFile);
+    if (!rule) continue;
+    subjectOf.set(clip.id, {
+      subject: rule.subject,
+      alternates: [],
+      source: 'rule',
+      confidence: 'high',
+      files: rule.files,
+    });
+  }
+
+  // Tier 2 for whatever is still unnamed, offering several candidates per file.
   const candidates = new Map<string, string[]>();
   for (const clip of undocumented) {
+    if (subjectOf.has(clip.id)) continue;
     const list = guessSubjects(clip.displayFile);
     if (list.length) candidates.set(clip.id, list);
   }
@@ -601,22 +622,6 @@ export async function buildSprites(
       source: 'filename',
       // Having to shorten the name means we guessed at the entity, so say so.
       confidence: i === 0 ? 'medium' : 'low',
-    });
-  }
-
-  // Curated rules for whatever the first two tiers could not name. Narrow by
-  // design and checked against the wiki like everything else, so a rule that
-  // names a file which does not exist simply leaves the clip on a tile.
-  for (const clip of sfx) {
-    if (subjectOf.has(clip.id)) continue;
-    const rule = matchRule(clip.displayFile);
-    if (!rule) continue;
-    subjectOf.set(clip.id, {
-      subject: rule.subject,
-      alternates: [],
-      source: 'rule',
-      confidence: 'high',
-      files: rule.files,
     });
   }
 

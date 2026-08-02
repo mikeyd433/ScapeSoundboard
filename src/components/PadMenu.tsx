@@ -1,7 +1,15 @@
 import { useEffect, useRef } from 'react';
 
 import type { Board } from '../lib/boards';
+import { formatShortDuration } from '../lib/format';
 import { DEFAULT_PAD, type Clip, type PadSetting } from '../types';
+
+/** Takes of one sound often differ only in length, so lead with that. */
+function takeLabel(clip: Clip, index: number): string {
+  if (clip.variant) return clip.variant;
+  const d = formatShortDuration(clip.duration);
+  return d || `take ${index + 1}`;
+}
 
 type Props = {
   /** The clip as it sits in the list; `clip` is the variant actually in use. */
@@ -74,15 +82,16 @@ export function PadMenu({
 
       {variants.length > 1 && (
         <>
-          <div className="menu-label">Variant</div>
+          <div className="menu-label">Take · {variants.length} of this sound</div>
           <div className="variant-chips">
-            {variants.map((v) => (
+            {variants.map((v, i) => (
               <button
                 key={v.id}
                 className={v.id === clip.id ? 'chip on' : 'chip'}
                 onClick={() => onVariant(v.id)}
+                title={v.displayFile}
               >
-                {v.variant ?? 'current'}
+                {takeLabel(v, i)}
               </button>
             ))}
           </div>

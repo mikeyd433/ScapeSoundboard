@@ -78,6 +78,8 @@ export type Settings = {
   /** Drag from anywhere on a pad, not just the grab handle (spec §8, B). */
   gestureDrag: boolean;
   sortMode: SortMode;
+  /** Show one pad per title instead of one per take. */
+  collapseDuplicates: boolean;
 };
 
 export type DurationFilter = 'any' | 'lt2' | '2to8' | '8to60' | 'gt60';
@@ -145,4 +147,5 @@ export const DEFAULT_SETTINGS: Settings = {
   searchAll: false,
   gestureDrag: false,
   sortMode: 'artwork',
+  collapseDuplicates: true,
 };

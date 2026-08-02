@@ -36,7 +36,8 @@ export function IconPicker({ clip, onPick, onClose }: Props) {
     const current = clip.sprite?.subject;
     return [...new Set([...fromMatcher, ...fromName])]
       .filter((s) => s.toLowerCase() !== current?.toLowerCase())
-      .slice(0, 8);
+      .filter((s) => !s.includes('(') && !s.includes(')'))
+      .slice(0, 12);
   }, [clip]);
 
   useEffect(() => {

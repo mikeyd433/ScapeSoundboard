@@ -130,6 +130,13 @@ export function Header({
         )}
         <Toggle label="Favourites" checked={favoritesOnly} onChange={onFavoritesOnly} />
 
+        <Toggle
+          label="Merge duplicates"
+          title="One pad per name instead of one per take — right-click a pad to choose which take it plays"
+          checked={settings.collapseDuplicates}
+          onChange={(v) => onSettings({ collapseDuplicates: v })}
+        />
+
         <select
           className="select"
           value={durationFilter}

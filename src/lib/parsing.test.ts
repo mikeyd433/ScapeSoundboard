@@ -189,6 +189,16 @@ describe('guessSubjects', () => {
     }
   });
 
+  it('reaches the subject past variant parentheticals', () => {
+    // "Cooking Level Up! (Unlocks) (v1)": the parentheticals stayed in play as
+    // words, so every candidate was a phrase built from them and "Cooking"
+    // fell off the end of the list entirely.
+    const c = guessSubjects('Cooking Level Up! (Unlocks) (v1).ogg');
+    expect(c).toContain('Cooking');
+    expect(c.some((x) => x.includes('('))).toBe(false);
+    expect(c.some((x) => x.endsWith('!'))).toBe(false);
+  });
+
   it('does not offer connecting words on their own', () => {
     expect(guessSubjects('100 cat into hellcat.ogg')).not.toContain('into');
     expect(guessSubjects('100 cauldron shake loop.ogg')).not.toContain('loop');

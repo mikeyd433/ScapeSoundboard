@@ -273,6 +273,20 @@ export default function App() {
           .sort((a, b) => ranks.get(a.id)! - ranks.get(b.id)!);
       }
 
+      // Collapse takes of the same sound to one pad. The wiki carries several
+      // recordings of a jingle under one name, and a grid of four identical
+      // "Cooking Level Up!" pads is noise — the alternatives stay reachable
+      // from the right-click menu.
+      if (settings.collapseDuplicates) {
+        const seen = new Set<string>();
+        out = out.filter((c) => {
+          const key = groupKey(c);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+
       const byTitle = (a: Clip, b: Clip) =>
         a.title.localeCompare(b.title) || a.displayFile.localeCompare(b.displayFile);
 
@@ -304,6 +318,7 @@ export default function App() {
       spriteFilter,
       hasSprite,
       settings.sortMode,
+      settings.collapseDuplicates,
     ],
   );
 
