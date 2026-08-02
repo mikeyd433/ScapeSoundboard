@@ -11,6 +11,10 @@ on:
   push:
     tags:
       - 'v*'
+    # Pushing `release/v0.2.0` cuts v0.2.0. This exists because some
+    # environments can push branches but not tags.
+    branches:
+      - 'release/v*'
   workflow_dispatch:
     inputs:
       version:
@@ -26,6 +30,18 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: rel
+        shell: bash
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/*)          tag="$GITHUB_REF_NAME" ;;
+            refs/heads/release/*) tag="${GITHUB_REF_NAME#release/}" ;;
+            *)                    tag="${{ github.event.inputs.version }}" ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Release tag: ${tag:-<none, build only>}"
 
       - uses: actions/setup-node@v4
         with:
@@ -76,14 +92,15 @@ jobs:
           name: windows-installers
           path: dist-installers/*
 
-      # Dispatching with a version creates the tag at this commit, which is how
-      # releases are cut when tags cannot be pushed directly.
+      # Creates the tag at this commit when it does not already exist, which is
+      # how releases get cut when tags cannot be pushed directly.
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.version != ''
+        if: steps.rel.outputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.version || github.ref_name }}
-          name: OSRS Soundboard ${{ github.event.inputs.version || github.ref_name }}
+          tag_name: ${{ steps.rel.outputs.tag }}
+          name: OSRS Soundboard ${{ steps.rel.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: dist-installers/*
           generate_release_notes: true
           body: |
