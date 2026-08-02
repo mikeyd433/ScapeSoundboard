@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { addToBoard, makeBoard, resizeBoard, slotForKey, swapSlots } from './boards';
 import { formatBytes, formatDuration } from './format';
 
-import { extractSounds, guessSubjects } from './sprites';
+import { extractSounds, guessSubjects, scoreSearchHit } from './sprites';
 import { extensionOf, normFile, parseName, slugify } from './wiki';
 import { buildIndex, parseQuery, searchIndex } from './search';
 import { tileFor } from './sprite';
@@ -275,6 +275,37 @@ describe('search over descriptions', () => {
   it('still works when no description was ever collected', () => {
     const index = buildIndex([clip({ id: 'a', title: 'Icefiend attack' })]);
     expect(searchIndex(index, parseQuery('icefiend')).map((c) => c.id)).toEqual(['a']);
+  });
+});
+
+describe('scoring File-namespace search hits', () => {
+  // Real results for "jubbly": the subject is a short name containing the term,
+  // not a music track's map that happens to mention it.
+  it('prefers the shortest name that contains the term', () => {
+    const bird = scoreSearchHit('jubbly', 'File:Jubbly bird.png');
+    const raw = scoreSearchHit('jubbly', 'File:Raw jubbly.png');
+    const marlin = scoreSearchHit('jubbly', 'File:Jubbly Jive Marlin.png');
+    expect(bird).toBeGreaterThan(marlin);
+    expect(raw).toBeGreaterThan(marlin);
+  });
+
+  it('rejects maps and other location art', () => {
+    expect(scoreSearchHit('jubbly', 'File:Jubbly Jive - Marlin map.png')).toBeLessThan(0);
+    expect(scoreSearchHit('shark', 'File:Route for Shark.png')).toBeLessThan(0);
+  });
+
+  it('rejects hits that do not contain the term at all', () => {
+    expect(scoreSearchHit('jubbly', 'File:Bag full of gems.png')).toBeLessThan(0);
+  });
+
+  it('rejects wiki chrome', () => {
+    expect(scoreSearchHit('wiki', 'File:Wiki.png')).toBeLessThan(0);
+  });
+
+  it('rewards an exact name', () => {
+    expect(scoreSearchHit('jubbly', 'File:Jubbly.png')).toBeGreaterThan(
+      scoreSearchHit('jubbly', 'File:Cooked jubbly.png'),
+    );
   });
 });
 

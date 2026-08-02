@@ -263,6 +263,98 @@ function scoreImage(title: string, image: string): number {
 
 export type Thumb = { file: string; url: string };
 
+/* ------------------------------------------------------ tier three-and-a-half */
+
+/** Images that illustrate a location rather than a thing. */
+const MAP_LIKE = /\b(map|route|guide|chart|diagram|location|world|banner)\b/i;
+
+/** Bound on how many searches one pass will make; each is its own request. */
+const MAX_SEARCHES = 400;
+
+/**
+ * Score a File-namespace search hit. Fewer words is better: for "jubbly",
+ * `Raw jubbly.png` and `Jubbly bird.png` are the subject, while
+ * `Jubbly Jive - Marlin map.png` is a music track's map.
+ */
+export function scoreSearchHit(term: string, fileTitle: string): number {
+  const bare = fileTitle.replace(/^File:/, '').replace(/\.(png|gif|jpe?g)$/i, '');
+  const lower = bare.toLowerCase();
+  const t = term.toLowerCase();
+
+  if (!lower.includes(t)) return -1;
+  if (CHROME.test(fileTitle)) return -1;
+  if (MAP_LIKE.test(bare)) return -1;
+
+  const words = bare.split(/\s+/).length;
+  let score = 100 - words * 12 - Math.min(bare.length, 60) / 4;
+  if (lower === t) score += 60;
+  // Small on purpose. At +20 this outweighed the word-count penalty and let
+  // "Jubbly Jive Marlin" beat "Raw jubbly" — leading with the term matters far
+  // less than not being padded with three other words.
+  if (lower.startsWith(t)) score += 10;
+  if (/\.png$/i.test(fileTitle)) score += 10;
+  return score;
+}
+
+/**
+ * Full-text search of the File namespace, for terms that are not article
+ * titles in their own right.
+ *
+ * The exact-title path asks "is there an article called *jubbly*?" and gets
+ * nothing, because the articles are *Jubbly bird* and *Raw jubbly*. Search
+ * finds them. One request per term, so it runs last and only on what is left.
+ */
+async function searchArtwork(
+  terms: string[],
+  onProgress: SpriteProgress,
+  signal?: AbortSignal,
+): Promise<Map<string, Thumb>> {
+  const found = new Map<string, Thumb>();
+  const unique = [...new Set(terms)].slice(0, MAX_SEARCHES);
+
+  for (const [i, term] of unique.entries()) {
+    onProgress({ stage: 'Searching for artwork', done: i, total: unique.length });
+    try {
+      const j = await api<PagesWithImageInfo>(
+        {
+          action: 'query',
+          generator: 'search',
+          gsrsearch: term,
+          gsrnamespace: '6',
+          gsrlimit: '10',
+          prop: 'imageinfo',
+          iiprop: 'url',
+          iiurlwidth: '64',
+        },
+        signal,
+      );
+
+      let best: { score: number; thumb: Thumb } | null = null;
+      for (const page of j.query?.pages ?? []) {
+        const url = page.imageinfo?.[0]?.thumburl ?? page.imageinfo?.[0]?.url;
+        if (!url) continue;
+        const score = scoreSearchHit(term, page.title);
+        if (score < 0) continue;
+        if (!best || score > best.score) best = { score, thumb: { file: page.title, url } };
+      }
+      if (best) found.set(term, best.thumb);
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e;
+      // One bad search should not cost the rest of the pass.
+    }
+  }
+
+  if (terms.length > MAX_SEARCHES) {
+    onProgress({
+      stage: `Searching for artwork (capped at ${MAX_SEARCHES})`,
+      done: unique.length,
+      total: unique.length,
+    });
+  }
+
+  return found;
+}
+
 /**
  * Article title -> a 64px thumbnail. `iiurlwidth` means the whole sprite set
  * lands around 3–5 MB rather than pulling full-size renders.
@@ -535,9 +627,55 @@ export async function buildSprites(
     signal,
   );
 
+  // Last resort: anything still without artwork gets a File-namespace search.
+  // Its terms are article names that do not exist — "jubbly" is not a page, but
+  // Raw jubbly and Jubbly bird are, and only search will surface them.
+  const needsSearch: { clipId: string; terms: string[] }[] = [];
+  for (const clip of sfx) {
+    const named = subjectOf.get(clip.id);
+    if (named && artwork.has(named.subject)) continue;
+    const terms = guessSubjects(clip.displayFile).slice(0, 2);
+    if (terms.length) needsSearch.push({ clipId: clip.id, terms });
+  }
+
+  const searched = await searchArtwork(
+    needsSearch.flatMap((n) => n.terms),
+    onProgress,
+    signal,
+  );
+
+  const searchThumb = new Map<string, { term: string; thumb: Thumb }>();
+  for (const { clipId, terms } of needsSearch) {
+    for (const term of terms) {
+      const thumb = searched.get(term);
+      if (thumb) {
+        searchThumb.set(clipId, { term, thumb });
+        break;
+      }
+    }
+  }
+
   const sprites: Record<string, SpriteInfo> = {};
   const downloads: SpriteResult['downloads'] = [];
   const seenDest = new Set<string>();
+
+  for (const [clipId, hit] of searchThumb) {
+    const dest = `sprites/${slugify(hit.thumb.file.replace(/^File:/, ''))}.png`;
+    sprites[clipId] = {
+      file: dest,
+      url: hit.thumb.url,
+      subject: hit.thumb.file.replace(/^File:/, '').replace(/\.\w+$/, ''),
+      alternates: [],
+      source: 'search',
+      // A search hit is the loosest link we draw: the term appears in the
+      // filename, and that is all we know.
+      confidence: 'low',
+    };
+    if (!seenDest.has(dest)) {
+      seenDest.add(dest);
+      downloads.push({ id: dest, url: hit.thumb.url, dest, bytes: 0 });
+    }
+  }
 
   for (const [clipId, info] of subjectOf) {
     const art = artwork.get(info.subject);
