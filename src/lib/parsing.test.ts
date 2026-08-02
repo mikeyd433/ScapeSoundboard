@@ -7,6 +7,7 @@ import { extractSounds, guessSubjects } from './sprites';
 import { extensionOf, normFile, parseName, slugify } from './wiki';
 import { buildIndex, parseQuery, searchIndex } from './search';
 import { tileFor } from './sprite';
+import { SKILLS, matchRule, skillFor, skillIconFiles } from './rules';
 import type { Clip } from '../types';
 
 /**
@@ -226,6 +227,52 @@ describe('search over descriptions', () => {
   it('still works when no description was ever collected', () => {
     const index = buildIndex([clip({ id: 'a', title: 'Icefiend attack' })]);
     expect(searchIndex(index, parseQuery('icefiend')).map((c) => c.id)).toEqual(['a']);
+  });
+});
+
+describe('skill level-up rules', () => {
+  it('matches the shapes a level-up jingle is likely to be named', () => {
+    expect(skillFor('Attack level up.ogg')).toBe('Attack');
+    expect(skillFor('Levelup Attack.ogg')).toBe('Attack');
+    expect(skillFor('Level up - Slayer.ogg')).toBe('Slayer');
+    expect(skillFor('100 Woodcutting levelup.ogg')).toBe('Woodcutting');
+    expect(skillFor('Firemaking_level_up.ogg')).toBe('Firemaking');
+  });
+
+  it('refuses a bare skill word inside an entity name', () => {
+    // The whole reason this rule is narrow: hundreds of files are named
+    // "<entity> attack", and an Attack skill icon on a whip would be wrong.
+    expect(skillFor('Whip attack.wav')).toBeNull();
+    expect(skillFor('Icefiend attack.wav')).toBeNull();
+    expect(skillFor('Abyssal whip special attack.wav')).toBeNull();
+    expect(skillFor('Salamander attack (magic).wav')).toBeNull();
+  });
+
+  it('accepts an exact skill name on its own', () => {
+    expect(skillFor('Prayer.ogg')).toBe('Prayer');
+  });
+
+  it('normalises spellings that are not the article title', () => {
+    expect(skillFor('Runecrafting level up.ogg')).toBe('Runecraft');
+    expect(skillFor('Defense levelup.ogg')).toBe('Defence');
+    expect(skillFor('Ranging level up.ogg')).toBe('Ranged');
+  });
+
+  it('offers the icon convention first', () => {
+    expect(skillIconFiles('Attack')[0]).toBe('File:Attack icon.png');
+  });
+
+  it('covers every skill', () => {
+    expect(SKILLS).toHaveLength(23);
+    for (const skill of SKILLS) {
+      expect(skillFor(`${skill} level up.ogg`)).toBe(skill);
+      expect(matchRule(`${skill} level up.ogg`)?.subject).toBe(skill);
+    }
+  });
+
+  it('returns nothing for a sound that is not a level-up', () => {
+    expect(matchRule('100 goblin falls.ogg')).toBeNull();
+    expect(matchRule('A Grim Tale.ogg')).toBeNull();
   });
 });
 

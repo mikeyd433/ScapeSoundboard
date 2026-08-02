@@ -49,7 +49,7 @@ export type SpriteInfo = {
   subject: string;
   /** Other articles using this same sound. `Equip fun.wav` has dozens. */
   alternates: string[];
-  source: 'sfxline' | 'filename' | 'manual';
+  source: 'sfxline' | 'filename' | 'rule' | 'manual';
   confidence: 'high' | 'medium' | 'low';
 };
 

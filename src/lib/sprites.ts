@@ -1,3 +1,4 @@
+import { matchRule } from './rules';
 import { api, batched, normFile, slugify } from './wiki';
 import type { Clip, Manifest, SpriteInfo } from '../types';
 
@@ -221,18 +222,37 @@ export type Thumb = { file: string; url: string };
  * Article title -> a 64px thumbnail. `iiurlwidth` means the whole sprite set
  * lands around 3–5 MB rather than pulling full-size renders.
  */
+export type ArtworkRequest = {
+  subject: string;
+  /** Explicit ordered `File:` candidates. Falls back to the naming conventions. */
+  files?: string[];
+};
+
 async function resolveArtwork(
-  subjects: string[],
+  requests: ArtworkRequest[],
   onProgress: SpriteProgress,
   signal?: AbortSignal,
 ): Promise<Map<string, Thumb>> {
   const found = new Map<string, Thumb>();
-  const unique = [...new Set(subjects)];
+  const best = new Map<string, number>(); // subject -> index of the winning candidate
+
+  // Deduplicate by subject, preferring whichever request supplied explicit files.
+  const bySubject = new Map<string, ArtworkRequest>();
+  for (const r of requests) {
+    const existing = bySubject.get(r.subject);
+    if (!existing || (!existing.files && r.files)) bySubject.set(r.subject, r);
+  }
   let done = 0;
 
-  // Pass A: the naming conventions, which cover most items, spells and NPCs.
-  const wanted = new Map<string, string>(); // candidate file -> subject
-  for (const s of unique) for (const c of conventionCandidates(s)) wanted.set(c, s);
+  // Pass A: explicit candidates where a rule supplied them, otherwise the
+  // naming conventions that cover most items, spells and NPCs.
+  const wanted = new Map<string, { subject: string; rank: number }>();
+  for (const r of bySubject.values()) {
+    const candidates = r.files ?? conventionCandidates(r.subject);
+    candidates.forEach((c, rank) => {
+      if (!wanted.has(c)) wanted.set(c, { subject: r.subject, rank });
+    });
+  }
 
   for (const batch of batched([...wanted.keys()])) {
     const j = await api<PagesWithImageInfo>(
@@ -251,12 +271,14 @@ async function resolveArtwork(
       const ii = page.imageinfo?.[0];
       const url = ii?.thumburl ?? ii?.url;
       if (!url) continue;
-      const subject = wanted.get(page.title);
-      if (!subject) continue;
-      // Candidates are generated best-first, so never downgrade an existing hit.
-      const existing = found.get(subject);
-      if (!existing || scoreImage(subject, page.title) > scoreImage(subject, existing.file)) {
-        found.set(subject, { file: page.title, url });
+      const hit = wanted.get(page.title);
+      if (!hit) continue;
+      // Candidates are ordered best-first, so a lower rank always wins. This
+      // is simpler than re-scoring and it honours a rule's stated preference.
+      const current = best.get(hit.subject);
+      if (current === undefined || hit.rank < current) {
+        best.set(hit.subject, hit.rank);
+        found.set(hit.subject, { file: page.title, url });
       }
     }
 
@@ -264,8 +286,12 @@ async function resolveArtwork(
     onProgress({ stage: 'Finding artwork', done, total: wanted.size });
   }
 
-  // Pass B: for whatever is still unmatched, list the article's images and score.
-  const missing = unique.filter((s) => !found.has(s));
+  // Pass B: for whatever is still unmatched, list the article's images and
+  // score. Skipped for rule-supplied subjects — a rule naming exact files and
+  // missing means the icon is not there, not that we should go guessing.
+  const missing = [...bySubject.values()]
+    .filter((r) => !r.files && !found.has(r.subject))
+    .map((r) => r.subject);
   let mdone = 0;
   for (const batch of batched(missing, 20)) {
     const j = await api<PagesWithImages>(
@@ -382,8 +408,10 @@ export async function buildSprites(
     {
       subject: string;
       alternates: string[];
-      source: 'sfxline' | 'filename';
+      source: 'sfxline' | 'filename' | 'rule';
       confidence: 'high' | 'medium' | 'low';
+      /** Set when a curated rule named the artwork outright. */
+      files?: string[];
     }
   >();
   const descriptions: Record<string, string> = {};
@@ -435,9 +463,25 @@ export async function buildSprites(
     });
   }
 
+  // Curated rules for whatever the first two tiers could not name. Narrow by
+  // design and checked against the wiki like everything else, so a rule that
+  // names a file which does not exist simply leaves the clip on a tile.
+  for (const clip of sfx) {
+    if (subjectOf.has(clip.id)) continue;
+    const rule = matchRule(clip.displayFile);
+    if (!rule) continue;
+    subjectOf.set(clip.id, {
+      subject: rule.subject,
+      alternates: [],
+      source: 'rule',
+      confidence: 'high',
+      files: rule.files,
+    });
+  }
+
   // Tier 3: subject -> artwork.
   const artwork = await resolveArtwork(
-    [...subjectOf.values()].map((v) => v.subject),
+    [...subjectOf.values()].map((v) => ({ subject: v.subject, files: v.files })),
     onProgress,
     signal,
   );
