@@ -52,6 +52,7 @@ import {
   type Manifest,
   type PadSetting,
   type Settings,
+  type SpriteFilter,
   type SpriteInfo,
 } from './types';
 
@@ -88,6 +89,7 @@ export default function App() {
   const [debounced, setDebounced] = useState('');
   const [durationFilter, setDurationFilter] = useState<DurationFilter>('any');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [spriteFilter, setSpriteFilter] = useState<SpriteFilter>('any');
 
   const [extraDurations, setExtraDurations] = useState<Record<string, number>>({});
   const [overrides, setOverrides] = useState<Record<string, SpriteInfo>>({});
@@ -217,6 +219,13 @@ export default function App() {
   const index = useMemo(() => buildIndex(manifest?.clips ?? []), [manifest]);
   const groups = manifest?.groups ?? {};
 
+  /** Whether any artwork is assigned at all, download state aside. This is what
+   *  the no-sprite filter means: the matcher found nothing, not "not fetched". */
+  const hasSprite = useCallback(
+    (clip: Clip) => !!(overrides[clip.id] ?? clip.sprite),
+    [overrides],
+  );
+
   const durationOf = useCallback(
     (c: Clip): number | null => c.duration ?? extraDurations[c.id] ?? null,
     [extraDurations],
@@ -254,6 +263,7 @@ export default function App() {
         (c) =>
           (!settings.currentOnly || c.isCurrent) &&
           (!favoritesOnly || favorites.has(c.id)) &&
+          (spriteFilter === 'any' || hasSprite(c) === (spriteFilter === 'has')) &&
           matchesDuration(durationOf(c), durationFilter),
       );
       if (ranks) {
@@ -263,10 +273,25 @@ export default function App() {
       }
       return out;
     },
-    [settings.currentOnly, favoritesOnly, favorites, durationFilter, durationOf, ranks],
+    [
+      settings.currentOnly,
+      favoritesOnly,
+      favorites,
+      durationFilter,
+      durationOf,
+      ranks,
+      spriteFilter,
+      hasSprite,
+    ],
   );
 
   const boardClips = useMemo(() => refine(boardBase), [refine, boardBase]);
+
+  /** Size of the artwork gap on this tab, measured before filters narrow it. */
+  const noSpriteCount = useMemo(
+    () => (tab === 'board' ? boardBase : libraryBase).filter((c) => !hasSprite(c)).length,
+    [tab, boardBase, libraryBase, hasSprite],
+  );
   const libraryClips = useMemo(() => refine(libraryBase), [refine, libraryBase]);
 
   /* ------------------------------------------------------------ playback ---- */
@@ -579,6 +604,9 @@ export default function App() {
         onDurationFilter={setDurationFilter}
         favoritesOnly={favoritesOnly}
         onFavoritesOnly={setFavoritesOnly}
+        spriteFilter={spriteFilter}
+        onSpriteFilter={setSpriteFilter}
+        noSpriteCount={noSpriteCount}
         counts={{ board: boardClips.length, library: libraryClips.length }}
         onOpenSetup={() => setShowSetup(true)}
         voices={voices}

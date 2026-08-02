@@ -100,6 +100,16 @@ export function matchesDuration(d: number | null, f: DurationFilter): boolean {
   }
 }
 
+/** Spec §5 lists has-sprite as a filter. "none" is the interesting one: it is
+ *  how you find what the matcher missed and worth fixing by hand. */
+export type SpriteFilter = 'any' | 'has' | 'none';
+
+export const SPRITE_FILTERS: { value: SpriteFilter; label: string }[] = [
+  { value: 'any', label: 'Any artwork' },
+  { value: 'has', label: 'Has sprite' },
+  { value: 'none', label: 'No sprite' },
+];
+
 /** Per-pad tweaks from the right-click menu. */
 export type PadSetting = { gain: number; rate: number };
 

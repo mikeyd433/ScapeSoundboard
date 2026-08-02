@@ -1,8 +1,10 @@
 import type { RefObject } from 'react';
 import {
   DURATION_FILTERS,
+  SPRITE_FILTERS,
   type DurationFilter,
   type Settings,
+  type SpriteFilter,
 } from '../types';
 import { formatCount } from '../lib/format';
 
@@ -20,6 +22,10 @@ type Props = {
   onDurationFilter: (f: DurationFilter) => void;
   favoritesOnly: boolean;
   onFavoritesOnly: (v: boolean) => void;
+  spriteFilter: SpriteFilter;
+  onSpriteFilter: (f: SpriteFilter) => void;
+  /** How many clips on this tab have no artwork — the size of the gap. */
+  noSpriteCount: number;
   counts: { board: number; library: number };
   onOpenSetup: () => void;
   voices: number;
@@ -37,6 +43,9 @@ export function Header({
   onDurationFilter,
   favoritesOnly,
   onFavoritesOnly,
+  spriteFilter,
+  onSpriteFilter,
+  noSpriteCount,
   counts,
   onOpenSetup,
   voices,
@@ -139,6 +148,19 @@ export function Header({
             onChange={(v) => onSettings({ gestureDrag: v })}
           />
         )}
+
+        <select
+          className="select"
+          value={spriteFilter}
+          onChange={(e) => onSpriteFilter(e.target.value as SpriteFilter)}
+          title="Find the sounds the artwork matcher missed"
+        >
+          {SPRITE_FILTERS.map((f) => (
+            <option key={f.value} value={f.value}>
+              {f.value === 'none' ? `${f.label} (${formatCount(noSpriteCount)})` : f.label}
+            </option>
+          ))}
+        </select>
 
         <Toggle
           label="Search all tabs"

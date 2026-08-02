@@ -121,8 +121,11 @@ const ACTIONS =
 
 export function guessSubject(filename: string): string | null {
   let n = filename.replace(/\.(wav|ogg|mp3)$/i, '').replace(/\s*\(unused\)$/i, '');
-  // "Equip fun" names no entity — it is shared by dozens of items. Tier 4.
-  if (/^Equip /i.test(n)) return null;
+  // "Equip fun" names no entity, but "Equip whip" names a whip. Strip the verb
+  // and let title verification throw out the ones that resolve to nothing —
+  // that is exactly what the verification pass is for. Discarding every Equip
+  // file to dodge one pathological case costs hundreds of real matches.
+  n = n.replace(/^Equip\s+/i, '');
   n = n.replace(ACTIONS, '').trim();
   return n.length >= 2 ? n : null;
 }

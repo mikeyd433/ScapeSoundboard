@@ -73,6 +73,61 @@ export function Setup({ onReady, existing, onDismiss }: Props) {
     }
   }, []);
 
+  /**
+   * Match sounds to wiki artwork over an existing manifest. Kept separate from
+   * the download flow so it can be re-run on its own when the matching rules
+   * improve — nobody should have to re-fetch 80 MB of audio for new icons.
+   *
+   * Cosmetic by nature: it can be skipped, and any failure leaves the library
+   * exactly as usable as it was.
+   */
+  const spritePass = useCallback(async (input: Manifest): Promise<Manifest> => {
+    setStage('sprites');
+    setSpriteInfo(null);
+    spriteAbort.current = new AbortController();
+
+    try {
+      const result = await buildSprites(input, setSpriteInfo, spriteAbort.current.signal);
+      const merged: Manifest = {
+        ...input,
+        clips: input.clips.map((c) => {
+          const meta = result.soundMeta[c.id];
+          return {
+            ...c,
+            sprite: result.sprites[c.id] ?? c.sprite,
+            soundId: meta?.soundId ?? c.soundId,
+            configName: meta?.configName ?? c.configName,
+          };
+        }),
+      };
+
+      if (result.downloads.length) {
+        setSpriteInfo({ stage: 'Downloading artwork', done: 0, total: result.downloads.length });
+        await runDownload(result.downloads, (p) =>
+          setSpriteInfo({ stage: 'Downloading artwork', done: p.done, total: p.total }),
+        );
+      }
+      return merged;
+    } catch {
+      // Skipped or unreachable — every clip just falls back to a tile.
+      return input;
+    }
+  }, []);
+
+  /** Re-match artwork only, leaving the audio library untouched. */
+  const rematchArtwork = useCallback(async () => {
+    if (!existing) return;
+    setError(null);
+    try {
+      const updated = await spritePass(existing);
+      await saveManifest(updated);
+      onReady(updated);
+    } catch (e) {
+      setError(`Could not re-match artwork: ${(e as Error).message}`);
+      setStage('error');
+    }
+  }, [existing, spritePass, onReady]);
+
   const start = useCallback(async () => {
     if (!manifest || !plans) return;
     const plan = plans[scope];
@@ -113,35 +168,7 @@ export function Setup({ onReady, existing, onDismiss }: Props) {
         ),
       };
 
-      // Sprites are cosmetic. They get their own stage, they can be skipped,
-      // and a failure here must never cost the user a working library.
-      setStage('sprites');
-      setSpriteInfo(null);
-      spriteAbort.current = new AbortController();
-      try {
-        const result = await buildSprites(final, setSpriteInfo, spriteAbort.current.signal);
-        final = {
-          ...final,
-          clips: final.clips.map((c) => {
-            const meta = result.soundMeta[c.id];
-            return {
-              ...c,
-              sprite: result.sprites[c.id] ?? c.sprite,
-              soundId: meta?.soundId ?? c.soundId,
-              configName: meta?.configName ?? c.configName,
-            };
-          }),
-        };
-
-        if (result.downloads.length) {
-          setSpriteInfo({ stage: 'Downloading artwork', done: 0, total: result.downloads.length });
-          await runDownload(result.downloads, (p) =>
-            setSpriteInfo({ stage: 'Downloading artwork', done: p.done, total: p.total }),
-          );
-        }
-      } catch {
-        // Skipped or unreachable — every clip just falls back to a tile.
-      }
+      final = await spritePass(final);
 
       // Written last, so a manifest on disk always means a usable library.
       await saveManifest(final);
@@ -161,24 +188,48 @@ export function Setup({ onReady, existing, onDismiss }: Props) {
 
         {stage === 'intro' && (
           <>
-            <p className="lede">
-              The app ships empty and assembles its own library from the Old School RuneScape Wiki.
-              First it reads the file index — a few API calls, no audio yet.
-            </p>
-            <p className="fine">
-              Sound effects and short jingles are stored on your machine so pads fire instantly.
-              Music streams from the wiki rather than filling 7&nbsp;GB of disk.
-            </p>
-            <div className="row">
-              <button className="primary" onClick={fetchIndex}>
-                Read the wiki index
-              </button>
-              {existing && onDismiss && (
-                <button className="ghost" onClick={onDismiss}>
-                  Cancel
-                </button>
-              )}
-            </div>
+            {existing ? (
+              <>
+                <p className="lede">
+                  Your library has {formatCount(existing.clips.length)} files. You can top it up
+                  with anything new on the wiki, or just re-run the artwork matching.
+                </p>
+                <p className="fine">
+                  Re-matching artwork leaves your audio alone — it only re-reads the wiki&rsquo;s
+                  sound index and downloads any icons it finds. Worth doing when the matching
+                  rules improve.
+                </p>
+                <div className="row">
+                  <button className="primary" onClick={fetchIndex}>
+                    Check for new files
+                  </button>
+                  <button className="ghost" onClick={rematchArtwork}>
+                    Re-match artwork only
+                  </button>
+                  {onDismiss && (
+                    <button className="ghost" onClick={onDismiss}>
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="lede">
+                  The app ships empty and assembles its own library from the Old School RuneScape
+                  Wiki. First it reads the file index — a few API calls, no audio yet.
+                </p>
+                <p className="fine">
+                  Sound effects and short jingles are stored on your machine so pads fire
+                  instantly. Music streams from the wiki rather than filling 7&nbsp;GB of disk.
+                </p>
+                <div className="row">
+                  <button className="primary" onClick={fetchIndex}>
+                    Read the wiki index
+                  </button>
+                </div>
+              </>
+            )}
           </>
         )}
 

@@ -1,6 +1,6 @@
 [package]
 name = "scape-soundboard"
-version = "0.2.1"
+version = "0.3.0"
 description = "OSRS Soundboard"
 authors = ["mikeyd433"]
 edition = "2021"

@@ -122,9 +122,12 @@ describe('guessSubject', () => {
     expect(guessSubject('Brine sabre attack (stab).wav')).toBe('Brine sabre');
   });
 
-  it('refuses Equip names, which identify no entity', () => {
-    expect(guessSubject('Equip fun.wav')).toBeNull();
-    expect(guessSubject('Equip darkbow.wav')).toBeNull();
+  it('strips the Equip verb and leaves the item to be verified', () => {
+    // "whip" resolves to a real article and survives; "fun" does not and gets
+    // dropped by the verification pass rather than by a blanket rule here.
+    expect(guessSubject('Equip whip.wav')).toBe('whip');
+    expect(guessSubject('Equip fun.wav')).toBe('fun');
+    expect(guessSubject('Equip dragon claws.ogg')).toBe('dragon claws');
   });
 
   it('passes bare spell and prayer names through', () => {
