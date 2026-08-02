@@ -27,6 +27,10 @@ export type Clip = {
   duration: number | null;
   sha1: string;
 
+  /** What the sound *is*, from Template:SFXLine — "Attacking", "Being hit",
+   *  "Special attack". Only the ~200 documented articles supply this. */
+  desc: string | null;
+
   /** In-game config name and sound id from Template:Sound effect license.
    *  Sound ids are not unique per file, so never key anything by them. */
   soundId: number | null;

@@ -125,7 +125,7 @@ export function Library({
                 <span className="lib-title" title={clip.displayFile}>
                   {clip.title}
                 </span>
-                <span className="lib-context">{clip.context ?? ''}</span>
+                <span className="lib-context">{clip.context ?? clip.desc ?? ''}</span>
 
                 <span className="lib-variants">
                   {variants.length > 1 &&

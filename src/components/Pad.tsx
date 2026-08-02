@@ -136,7 +136,9 @@ export function Pad({
       )}
 
       <span className="pad-title">{clip.title}</span>
-      {clip.context && <span className="pad-context">{clip.context}</span>}
+      {(clip.desc || clip.context) && (
+        <span className="pad-context">{clip.desc ?? clip.context}</span>
+      )}
 
       <span className="pad-foot">
         {favorite && <span className="star on">★</span>}

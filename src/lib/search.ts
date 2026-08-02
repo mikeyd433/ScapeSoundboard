@@ -8,6 +8,8 @@ export type Indexed = {
   clip: Clip;
   title: string;
   context: string;
+  /** "Attacking", "Being hit" — the plain-English answer to "what is this". */
+  desc: string;
   hay: string;
 };
 
@@ -15,13 +17,16 @@ export function buildIndex(clips: Clip[]): Indexed[] {
   return clips.map((clip) => {
     const title = clip.title.toLowerCase();
     const context = (clip.context ?? '').toLowerCase();
+    const desc = (clip.desc ?? '').toLowerCase();
     return {
       clip,
       title,
       context,
+      desc,
       hay: [
         title,
         context,
+        desc,
         clip.kind,
         clip.variant ?? '',
         clip.configName ?? '',
@@ -72,6 +77,9 @@ function scoreOne(idx: Indexed, term: string): number {
   const t = idx.title.indexOf(term);
   if (t === 0) return 600;
   if (t > 0) return 400 - Math.min(t, 200);
+  // A description match is a strong signal: searching "being hit" is someone
+  // describing the sound rather than naming the file, and that should land.
+  if (idx.desc.includes(term)) return 220;
   if (idx.context.includes(term)) return 180;
   const h = idx.hay.indexOf(term);
   if (h >= 0) return 90 - Math.min(h, 60);

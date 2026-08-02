@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import { addToBoard, makeBoard, resizeBoard, slotForKey, swapSlots } from './boards';
 import { formatBytes, formatDuration } from './format';
-import { parseQuery } from './search';
+
 import { extractSounds, guessSubject } from './sprites';
 import { extensionOf, normFile, parseName, slugify } from './wiki';
+import { buildIndex, parseQuery, searchIndex } from './search';
+import type { Clip } from '../types';
 
 /**
  * These cover the parts that are easy to get subtly wrong and impossible to
@@ -155,6 +157,52 @@ describe('parseQuery', () => {
 
   it('returns nothing to match on for an empty query', () => {
     expect(parseQuery('   ').terms).toEqual([]);
+  });
+});
+
+describe('search over descriptions', () => {
+  const clip = (over: Partial<Clip>): Clip => ({
+    id: 'x',
+    title: 'Whip attack',
+    context: null,
+    variant: null,
+    isCurrent: true,
+    kind: 'sfx',
+    file: null,
+    remoteUrl: '',
+    displayFile: 'Whip attack.wav',
+    bytes: 0,
+    duration: null,
+    sha1: '',
+    desc: null,
+    soundId: null,
+    configName: null,
+    sprite: null,
+    ...over,
+  });
+
+  it('finds a sound by what it is, not just what it is called', () => {
+    // The whole point: you know the sound as "being hit", not as its filename.
+    const index = buildIndex([
+      clip({ id: 'a', title: 'Human hit', desc: 'Being hit' }),
+      clip({ id: 'b', title: 'Whip attack', desc: 'Attacking' }),
+    ]);
+    const hits = searchIndex(index, parseQuery('being hit'));
+    expect(hits.map((c) => c.id)).toEqual(['a']);
+  });
+
+  it('ranks a description match above an incidental filename match', () => {
+    const index = buildIndex([
+      clip({ id: 'filename', title: 'Cave goblin attack', desc: null }),
+      clip({ id: 'described', title: 'Dwarf noise', desc: 'Attacking' }),
+    ]);
+    const hits = searchIndex(index, parseQuery('attacking'));
+    expect(hits[0].id).toBe('described');
+  });
+
+  it('still works when no description was ever collected', () => {
+    const index = buildIndex([clip({ id: 'a', title: 'Icefiend attack' })]);
+    expect(searchIndex(index, parseQuery('icefiend')).map((c) => c.id)).toEqual(['a']);
   });
 });
 

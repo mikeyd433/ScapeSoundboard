@@ -48,6 +48,7 @@ function toClip(raw: RawFile, kind: Kind): Clip {
     bytes: raw.size,
     duration: raw.duration,
     sha1: raw.sha1,
+    desc: null,
     soundId: null,
     configName: null,
     sprite: null,

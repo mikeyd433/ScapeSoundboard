@@ -21,6 +21,9 @@ export type SpriteProgress = (info: { stage: string; done: number; total: number
 
 export type SpriteResult = {
   sprites: Record<string, SpriteInfo>;
+  /** Clip id -> what the sound is ("Attacking", "Being hit"). Independent of
+   *  whether artwork resolved — the description is useful on its own. */
+  descriptions: Record<string, string>;
   /** Thumbnails to fetch, deduped by destination. */
   downloads: { id: string; url: string; dest: string; bytes: number }[];
   soundMeta: Record<string, { soundId: number | null; configName: string | null }>;
@@ -347,10 +350,14 @@ export async function buildSprites(
 
   // Tier 1 assignments.
   const subjectOf = new Map<string, { subject: string; alternates: string[]; source: 'sfxline' | 'filename' }>();
+  const descriptions: Record<string, string> = {};
   const undocumented: Clip[] = [];
 
   for (const clip of sfx) {
     const hit = index.get(normFile(clip.displayFile));
+    // Keep the description even when the artwork lookup later comes up empty:
+    // "Being hit" is what makes a sound findable, art or no art.
+    if (hit?.desc) descriptions[clip.id] = hit.desc;
     if (hit && hit.articles.length) {
       // Shortest title is a decent representative when a sound is shared.
       const sorted = [...hit.articles].sort((a, b) => a.length - b.length);
@@ -409,7 +416,7 @@ export async function buildSprites(
     signal,
   );
 
-  return { sprites, downloads, soundMeta };
+  return { sprites, descriptions, downloads, soundMeta };
 }
 
 /* ---------------------------------------------------------------- types ---- */

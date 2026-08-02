@@ -95,6 +95,7 @@ export function Setup({ onReady, existing, onDismiss }: Props) {
           return {
             ...c,
             sprite: result.sprites[c.id] ?? c.sprite,
+            desc: result.descriptions[c.id] ?? c.desc,
             soundId: meta?.soundId ?? c.soundId,
             configName: meta?.configName ?? c.configName,
           };
