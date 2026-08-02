@@ -231,12 +231,31 @@ describe('search over descriptions', () => {
 });
 
 describe('skill level-up rules', () => {
-  it('matches the shapes a level-up jingle is likely to be named', () => {
+  it('matches the names the wiki actually uses', () => {
+    // Verbatim from the real library. The trailing bang and the parenthetical
+    // are the whole reason the first version of this rule matched nothing.
+    expect(skillFor('Attack Level Up!.ogg')).toBe('Attack');
+    expect(skillFor('Attack Level Up! (Unlocks).ogg')).toBe('Attack');
+    expect(skillFor('Hunter Level Up! (Even).ogg')).toBe('Hunter');
+    expect(skillFor('Hunter Level Up! (Odd).ogg')).toBe('Hunter');
+    expect(skillFor('Magic Level Up! (Unlocks).ogg')).toBe('Magic');
+    expect(skillFor('Combat Level Up!.ogg')).toBe('Combat');
+    expect(skillFor('Woodcutting Level Up!.ogg')).toBe('Woodcutting');
+  });
+
+  it('also matches the shapes it was originally written for', () => {
     expect(skillFor('Attack level up.ogg')).toBe('Attack');
     expect(skillFor('Levelup Attack.ogg')).toBe('Attack');
     expect(skillFor('Level up - Slayer.ogg')).toBe('Slayer');
     expect(skillFor('100 Woodcutting levelup.ogg')).toBe('Woodcutting');
     expect(skillFor('Firemaking_level_up.ogg')).toBe('Firemaking');
+  });
+
+  it('leaves other level-up sounds alone', () => {
+    // Named for the effect, not a skill — it already matches its own article.
+    expect(skillFor('Level up fireworks.ogg')).toBeNull();
+    expect(skillFor('Low Level Alchemy.ogg')).toBeNull();
+    expect(skillFor('High Level Alchemy.ogg')).toBeNull();
   });
 
   it('refuses a bare skill word inside an entity name', () => {
@@ -262,11 +281,12 @@ describe('skill level-up rules', () => {
     expect(skillIconFiles('Attack')[0]).toBe('File:Attack icon.png');
   });
 
-  it('covers every skill', () => {
-    expect(SKILLS).toHaveLength(23);
+  it('covers every skill, in the naming the wiki uses', () => {
+    expect(SKILLS).toHaveLength(24); // 23 skills plus Combat
     for (const skill of SKILLS) {
-      expect(skillFor(`${skill} level up.ogg`)).toBe(skill);
-      expect(matchRule(`${skill} level up.ogg`)?.subject).toBe(skill);
+      expect(skillFor(`${skill} Level Up!.ogg`)).toBe(skill);
+      expect(skillFor(`${skill} Level Up! (Unlocks).ogg`)).toBe(skill);
+      expect(matchRule(`${skill} Level Up!.ogg`)?.subject).toBe(skill);
     }
   });
 

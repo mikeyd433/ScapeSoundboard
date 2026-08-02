@@ -1,7 +1,7 @@
 {
   "name": "scape-soundboard",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "description": "OSRS Soundboard — desktop soundboard and music player for Old School RuneScape audio",
   "scripts": {

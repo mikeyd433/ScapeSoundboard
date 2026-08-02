@@ -45,6 +45,8 @@ export const SKILLS = [
   'Firemaking',
   'Woodcutting',
   'Farming',
+  // Not a skill, but it has its own level-up jingle and its own icon.
+  'Combat',
 ] as const;
 
 /** Spellings that turn up in filenames but are not the article title. */
@@ -85,13 +87,26 @@ const LEVEL_UP_PATTERNS = [
 /** Engine-style ids, the same ones tier 2 strips. */
 const LEADING_ID = /^\d+[a-z]?\s+/i;
 
+/**
+ * The real names are `Attack Level Up!.ogg` and `Attack Level Up! (Unlocks).ogg`,
+ * with `(Even)` / `(Odd)` variants too. Both the trailing bang and the
+ * parenthetical have to come off before the name can be matched against a
+ * pattern anchored at the end.
+ */
 function clean(displayFile: string): string {
-  return displayFile
+  let n = displayFile
     .replace(/\.(wav|ogg|mp3)$/i, '')
-    .replace(/\s*\(unused\)$/i, '')
     .replace(LEADING_ID, '')
-    .replace(/[_]+/g, ' ')
+    .replace(/_+/g, ' ')
     .trim();
+
+  // Peel every trailing parenthetical, not just one.
+  for (let prev = ''; prev !== n; ) {
+    prev = n;
+    n = n.replace(/\s*\([^()]*\)\s*$/, '').trim();
+  }
+
+  return n.replace(/[!?.]+$/, '').trim();
 }
 
 export function skillFor(displayFile: string): string | null {
