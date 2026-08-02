@@ -1,0 +1,83 @@
+name: Release
+
+# Tag a version to cut a release:
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# The installers are published under stable filenames so that
+# dabingabongo.com/downloads can link to /releases/latest/download/<name>
+# and never need updating when a new version ships.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - run: npm ci
+
+      - name: Build installers
+        run: npm run tauri -- build --target x86_64-pc-windows-msvc --bundles nsis,msi
+
+      - name: Collect artifacts under stable names
+        shell: pwsh
+        run: |
+          $bundle = "src-tauri/target/x86_64-pc-windows-msvc/release/bundle"
+          New-Item -ItemType Directory -Force -Path dist-installers | Out-Null
+
+          $nsis = Get-ChildItem "$bundle/nsis/*.exe" | Select-Object -First 1
+          $msi  = Get-ChildItem "$bundle/msi/*.msi"  | Select-Object -First 1
+
+          if (-not $nsis) { throw "NSIS installer not found under $bundle/nsis" }
+          if (-not $msi)  { throw "MSI installer not found under $bundle/msi" }
+
+          Copy-Item $nsis "dist-installers/OSRS-Soundboard-Setup-x64.exe"
+          Copy-Item $msi  "dist-installers/OSRS-Soundboard-x64.msi"
+          Get-ChildItem dist-installers | Format-Table Name, Length
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: dist-installers/*
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: OSRS Soundboard ${{ github.ref_name }}
+          files: dist-installers/*
+          generate_release_notes: true
+          body: |
+            Windows installer for the OSRS Soundboard.
+
+            `OSRS-Soundboard-Setup-x64.exe` is the normal choice — it adds a desktop
+            shortcut and a Start menu entry. The `.msi` is there for anyone who
+            prefers it or needs to deploy it.
+
+            The app ships empty and downloads its own audio library from the
+            OSRS Wiki on first run. Nothing is bundled with the installer.
+
+            The installer is unsigned, so SmartScreen will warn on first launch —
+            choose "More info" then "Run anyway".

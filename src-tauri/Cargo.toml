@@ -1,0 +1,30 @@
+[package]
+name = "scape-soundboard"
+version = "0.1.0"
+description = "OSRS Soundboard"
+authors = ["mikeyd433"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "scape_soundboard_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-fs = "2"
+tauri-plugin-http = "2"
+tauri-plugin-store = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+futures-util = "0.3"
+tokio = { version = "1", features = ["fs", "io-util"] }
+
+[features]
+# This feature is used for production builds where `devUrl` points to the filesystem.
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
