@@ -1,33 +1,50 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { BoardBar, BoardGrid } from './components/Boards';
 import { Header, type Tab } from './components/Header';
 import { Library } from './components/Library';
+import type { PadEnv } from './components/PadEnv';
+import { IconPicker } from './components/IconPicker';
 import { Setup } from './components/Setup';
 import { Soundboard } from './components/Soundboard';
 import { Transport } from './components/Transport';
 
 import { engine, type TransportState } from './lib/audio';
+import { runDownload } from './lib/download';
+import { beginDrag, isDraggable, prewarm, sweepDragCache } from './lib/drag';
+import {
+  addToBoard,
+  makeBoard,
+  slotForKey,
+  type Board,
+} from './lib/boards';
 import { formatCount } from './lib/format';
 import {
+  groupKey,
   isLocal,
   loadManifest,
+  loadOverrides,
   makeResolver,
+  saveOverrides,
   scanLocalFiles,
   type UrlResolver,
 } from './lib/library';
 import { buildIndex, parseQuery, searchIndex } from './lib/search';
 import {
+  loadBoards,
   loadFavorites,
   loadPads,
   loadSettings,
   loadVariantChoices,
   pushRecent,
+  saveBoards,
   saveFavorites,
   savePads,
   saveSettings,
   saveVariantChoices,
 } from './lib/store';
 import {
+  DEFAULT_PAD,
   DEFAULT_SETTINGS,
   matchesDuration,
   type Clip,
@@ -35,9 +52,18 @@ import {
   type Manifest,
   type PadSetting,
   type Settings,
+  type SpriteInfo,
 } from './types';
 
 const SEARCH_DEBOUNCE_MS = 120;
+
+/** Board keys are bare letters and digits, so never steal them from a field. */
+function isTyping(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+  );
+}
 
 export default function App() {
   const [booting, setBooting] = useState(true);
@@ -51,6 +77,12 @@ export default function App() {
   const [pads, setPads] = useState<Record<string, PadSetting>>({});
   const [variantChoices, setVariantChoices] = useState<Record<string, string>>({});
 
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
+  /** null means the browse-everything grid rather than a saved board. */
+  const [boardView, setBoardView] = useState<string | null>(null);
+  const [editingBoard, setEditingBoard] = useState(false);
+
   const [tab, setTab] = useState<Tab>('board');
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -58,6 +90,9 @@ export default function App() {
   const [favoritesOnly, setFavoritesOnly] = useState(false);
 
   const [extraDurations, setExtraDurations] = useState<Record<string, number>>({});
+  const [overrides, setOverrides] = useState<Record<string, SpriteInfo>>({});
+  const [iconFor, setIconFor] = useState<Clip | null>(null);
+  const [selection, setSelection] = useState<Set<string>>(() => new Set());
   const [transport, setTransport] = useState<TransportState>(() => engine.getTransport());
   const [nowPlaying, setNowPlaying] = useState<Clip | null>(null);
   const [shuffle, setShuffle] = useState(false);
@@ -69,28 +104,36 @@ export default function App() {
   /* ---------------------------------------------------------------- boot ---- */
 
   const attach = useCallback(async (m: Manifest) => {
-    const found = await scanLocalFiles();
+    const [found, saved] = await Promise.all([scanLocalFiles(), loadOverrides()]);
     const r = await makeResolver(found);
     setPresent(found);
     setResolve(() => r);
+    setOverrides(saved);
     setManifest(m);
   }, []);
 
   useEffect(() => {
     void (async () => {
-      const [s, f, p, v] = await Promise.all([
+      const [s, f, p, v, b] = await Promise.all([
         loadSettings(),
         loadFavorites(),
         loadPads(),
         loadVariantChoices(),
+        loadBoards(),
       ]);
       setSettings(s);
       setFavorites(f);
       setPads(p);
       setVariantChoices(v);
+      setBoards(b.boards);
+      setActiveBoardId(b.activeId ?? b.boards[0]?.id ?? null);
       engine.setMasterVolume(s.masterVolume);
       engine.setSfxVolume(s.sfxVolume);
       engine.setMusicVolume(s.musicVolume);
+
+      // Stale staging files from the last session, cleared before anything can
+      // hand one to another app (spec §8: sweep on startup, not on drop).
+      void sweepDragCache();
 
       const m = await loadManifest();
       if (m) await attach(m);
@@ -121,6 +164,10 @@ export default function App() {
   useEffect(() => {
     if (loaded.current) void saveVariantChoices(variantChoices);
   }, [variantChoices]);
+
+  useEffect(() => {
+    if (loaded.current) void saveBoards({ boards, activeId: activeBoardId });
+  }, [boards, activeBoardId]);
 
   /* -------------------------------------------------------------- engine ---- */
 
@@ -261,10 +308,19 @@ export default function App() {
   /* ------------------------------------------------------------ keyboard ---- */
 
   useEffect(() => {
-    const typing = (t: EventTarget | null) =>
-      t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
+    const typing = isTyping;
 
     const onKey = (e: KeyboardEvent) => {
+      if (e.altKey && /^[1-9]$/.test(e.key)) {
+        const board = boards[Number(e.key) - 1];
+        if (board) {
+          e.preventDefault();
+          setBoardView(board.id);
+          setActiveBoardId(board.id);
+          setTab('board');
+        }
+        return;
+      }
       if (e.key === '/' && !typing(e.target)) {
         e.preventDefault();
         searchRef.current?.focus();
@@ -295,7 +351,7 @@ export default function App() {
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [query, nowPlaying]);
+  }, [query, nowPlaying, boards]);
 
   /* -------------------------------------------------------------- render ---- */
 
@@ -322,11 +378,180 @@ export default function App() {
     [],
   );
 
+  /* -------------------------------------------------------------- boards ---- */
+
+  const activeBoard = useMemo(
+    () => boards.find((b) => b.id === boardView) ?? null,
+    [boards, boardView],
+  );
+
+  const createBoard = useCallback(() => {
+    const board = makeBoard(`Board ${boards.length + 1}`);
+    setBoards((list) => [...list, board]);
+    setActiveBoardId(board.id);
+    setBoardView(board.id);
+    setEditingBoard(false);
+  }, [boards.length]);
+
+  const updateBoard = useCallback((board: Board) => {
+    setBoards((list) => list.map((b) => (b.id === board.id ? board : b)));
+  }, []);
+
+  const deleteBoard = useCallback((id: string) => {
+    setBoards((list) => list.filter((b) => b.id !== id));
+    setBoardView((v) => (v === id ? null : v));
+    setActiveBoardId((a) => (a === id ? null : a));
+    setEditingBoard(false);
+  }, []);
+
+  const addClipToBoard = useCallback((boardId: string, clipId: string) => {
+    setBoards((list) =>
+      list.map((b) => (b.id === boardId ? addToBoard(b, clipId) ?? b : b)),
+    );
+  }, []);
+
+  /** Slots 1–16 fire from the number and QWERTY rows while a board is open. */
+  useEffect(() => {
+    if (!activeBoard || editingBoard || !resolve) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+      const slot = slotForKey(e.key);
+      if (slot < 0) return;
+      const id = activeBoard.slots[slot];
+      const clip = id ? byId.get(id) : null;
+      if (!clip) return;
+      e.preventDefault();
+      const s = pads[clip.id] ?? DEFAULT_PAD;
+      void engine.playSfx(clip.id, resolve(clip), { gain: s.gain, rate: s.rate });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeBoard, editingBoard, resolve, byId, pads]);
+
+  /* -------------------------------------------------------------- sprites ---- */
+
+  /** Prefer the local copy; fall back to the wiki thumbnail until it lands. */
+  const spriteUrlFor = useCallback(
+    (clip: Clip): string | null => {
+      const sprite = overrides[clip.id] ?? clip.sprite;
+      if (!sprite) return null;
+      return present.has(sprite.file) ? resolve?.path(sprite.file) ?? sprite.url : sprite.url;
+    },
+    [overrides, present, resolve],
+  );
+
+  const applyIcon = useCallback(
+    async (clip: Clip, sprite: SpriteInfo) => {
+      const next = { ...overrides, [clip.id]: sprite };
+      setOverrides(next);
+      setIconFor(null);
+      void saveOverrides(next);
+      try {
+        await runDownload([{ id: sprite.file, url: sprite.url, dest: sprite.file, bytes: 0 }], () => {});
+        // Re-scan so the pad switches from the remote thumbnail to the local file.
+        setPresent(await scanLocalFiles());
+      } catch {
+        // The remote thumbnail keeps working; only the offline copy is missing.
+      }
+    },
+    [overrides],
+  );
+
+  /* ------------------------------------------------------------ drag-out ---- */
+
+  const canDrag = useCallback((clip: Clip) => isDraggable(clip, present), [present]);
+
+  /** Dragging a selected pad takes the whole selection with it. */
+  const dragSet = useCallback(
+    (clip: Clip): Clip[] => {
+      if (selection.has(clip.id) && selection.size > 1) {
+        return [...selection].map((id) => byId.get(id)).filter((c): c is Clip => !!c);
+      }
+      return [clip];
+    },
+    [selection, byId],
+  );
+
+  const onGrab = useCallback(
+    (clip: Clip) => {
+      const clips = dragSet(clip).filter((c) => canDrag(c));
+      if (!clips.length) return;
+      void beginDrag(clips, overrides[clip.id] ?? clip.sprite);
+    },
+    [dragSet, canDrag, overrides],
+  );
+
+  const onGrabHover = useCallback(
+    (clip: Clip) => {
+      const clips = dragSet(clip).filter((c) => canDrag(c));
+      if (clips.length) void prewarm(clips);
+    },
+    [dragSet, canDrag],
+  );
+
+  const onSelect = useCallback((clipId: string) => {
+    setSelection((sel) => {
+      const next = new Set(sel);
+      if (next.has(clipId)) next.delete(clipId);
+      else next.add(clipId);
+      return next;
+    });
+  }, []);
+
+  const env: PadEnv | null = useMemo(() => {
+    if (!resolve) return null;
+    const pick = (clip: Clip) => {
+      const chosen = variantChoices[groupKey(clip)];
+      return chosen && chosen !== clip.id ? byId.get(chosen) ?? clip : clip;
+    };
+    return {
+      resolve,
+      lookup: (id) => byId.get(id) ?? null,
+      effective: pick,
+      groupOf: groupKey,
+      variantsOf: (clip) =>
+        (groups[groupKey(clip)] ?? []).map((id) => byId.get(id)).filter((c): c is Clip => !!c),
+      pads,
+      onPad: (id, s) => setPads((p) => ({ ...p, [id]: s })),
+      onVariant: setVariant,
+      favorites,
+      onFavorite: toggleFavorite,
+      boards,
+      onAddToBoard: addClipToBoard,
+      spriteUrlFor,
+      onChangeIcon: setIconFor,
+      selection,
+      onSelect,
+      onGrab,
+      onGrabHover,
+      gestureDrag: settings.gestureDrag,
+      canDrag,
+    };
+  }, [
+    resolve,
+    byId,
+    groups,
+    variantChoices,
+    pads,
+    favorites,
+    boards,
+    setVariant,
+    toggleFavorite,
+    addClipToBoard,
+    spriteUrlFor,
+    selection,
+    onSelect,
+    onGrab,
+    onGrabHover,
+    settings.gestureDrag,
+    canDrag,
+  ]);
+
   if (booting) {
     return <div className="boot">Loading library…</div>;
   }
 
-  if (showSetup || !manifest || !resolve) {
+  if (showSetup || !manifest || !resolve || !env) {
     return (
       <Setup
         existing={manifest}
@@ -367,24 +592,42 @@ export default function App() {
 
       <main className="main">
         {tab === 'board' ? (
-          <Soundboard
-            clips={boardClips}
-            resolve={resolve}
-            padSize={settings.padSize}
-            pads={pads}
-            onPad={(id, s) => setPads((p) => ({ ...p, [id]: s }))}
-            groups={groups}
-            byId={byId}
-            variantChoices={variantChoices}
-            onVariant={setVariant}
-            favorites={favorites}
-            onFavorite={toggleFavorite}
-            emptyHint={
-              hasQuery
-                ? 'No pads match that search.'
-                : 'No pads to show — try turning off the filters above.'
-            }
-          />
+          <div className="board-pane">
+            <BoardBar
+              boards={boards}
+              view={boardView}
+              onView={(v) => {
+                setBoardView(v);
+                if (v) setActiveBoardId(v);
+                setEditingBoard(false);
+              }}
+              onCreate={createBoard}
+              onUpdate={updateBoard}
+              onDelete={deleteBoard}
+              editing={editingBoard}
+              onEditing={setEditingBoard}
+            />
+            {activeBoard ? (
+              <BoardGrid
+                board={activeBoard}
+                padSize={settings.padSize}
+                env={env}
+                editing={editingBoard}
+                onUpdate={updateBoard}
+              />
+            ) : (
+              <Soundboard
+                clips={boardClips}
+                padSize={settings.padSize}
+                env={env}
+                emptyHint={
+                  hasQuery
+                    ? 'No pads match that search.'
+                    : 'No pads to show — try turning off the filters above.'
+                }
+              />
+            )}
+          </div>
         ) : (
           <Library
             clips={libraryClips}
@@ -397,12 +640,24 @@ export default function App() {
             onFavorite={toggleFavorite}
             nowPlaying={transport.clipId}
             onPlay={playTrack}
+            spriteUrlFor={spriteUrlFor}
+            canDrag={canDrag}
+            onGrab={onGrab}
+            onGrabHover={onGrabHover}
             durationOf={durationOf}
             onDuration={noteDuration}
             emptyHint={hasQuery ? 'Nothing in the library matches that.' : 'Nothing to show.'}
           />
         )}
       </main>
+
+      {iconFor && (
+        <IconPicker
+          clip={iconFor}
+          onPick={(sprite) => void applyIcon(iconFor, sprite)}
+          onClose={() => setIconFor(null)}
+        />
+      )}
 
       <Transport
         clip={nowPlaying}

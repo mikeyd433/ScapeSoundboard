@@ -20,6 +20,10 @@ type Props = {
   onFavorite: (id: string) => void;
   nowPlaying: string | null;
   onPlay: (clip: Clip) => void;
+  spriteUrlFor: (clip: Clip) => string | null;
+  canDrag: (clip: Clip) => boolean;
+  onGrab: (clip: Clip) => void;
+  onGrabHover: (clip: Clip) => void;
   durationOf: (clip: Clip) => number | null;
   onDuration: (id: string, seconds: number) => void;
   emptyHint: string;
@@ -36,6 +40,10 @@ export function Library({
   onFavorite,
   nowPlaying,
   onPlay,
+  spriteUrlFor,
+  canDrag,
+  onGrab,
+  onGrabHover,
   durationOf,
   onDuration,
   emptyHint,
@@ -90,6 +98,7 @@ export function Library({
           {visible.map((listed) => {
             const clip = effective(listed);
             const tile = tileFor(clip);
+            const sprite = spriteUrlFor(clip);
             const variants = (groups[groupKey(listed)] ?? [])
               .map((id) => byId.get(id))
               .filter((c): c is Clip => !!c);
@@ -103,7 +112,13 @@ export function Library({
               >
                 <button className="lib-play" onClick={() => onPlay(clip)} title="Play">
                   <span className="lib-tile" style={{ background: tile.background, color: tile.color }}>
-                    {nowPlaying === clip.id ? '▶' : tile.label}
+                    {nowPlaying === clip.id ? (
+                      '▶'
+                    ) : sprite ? (
+                      <img src={sprite} alt="" draggable={false} />
+                    ) : (
+                      tile.label
+                    )}
                   </span>
                 </button>
 
@@ -131,6 +146,21 @@ export function Library({
 
                 <span className="lib-kind">{clip.kind}</span>
                 <span className="lib-dur">{formatDuration(durationOf(clip))}</span>
+
+                {canDrag(clip) && (
+                  <span
+                    className="lib-grab"
+                    title="Drag this file into another app"
+                    onPointerEnter={() => onGrabHover(clip)}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onGrab(clip);
+                    }}
+                  >
+                    ⠿
+                  </span>
+                )}
 
                 <button
                   className={favorites.has(clip.id) ? 'star on' : 'star'}

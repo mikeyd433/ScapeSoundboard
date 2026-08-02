@@ -3,6 +3,7 @@ import { useCallback, useRef, useState } from 'react';
 import type { Manifest } from '../types';
 import { cancelDownload, runDownload, type DownloadProgress } from '../lib/download';
 import { probeAll } from '../lib/duration';
+import { buildSprites } from '../lib/sprites';
 import { formatBytes, formatCount } from '../lib/format';
 import {
   applyPlan,
@@ -16,7 +17,7 @@ import {
   type DownloadScope,
 } from '../lib/library';
 
-type Stage = 'intro' | 'index' | 'choose' | 'download' | 'probe' | 'error';
+type Stage = 'intro' | 'index' | 'choose' | 'download' | 'probe' | 'sprites' | 'error';
 
 type Props = {
   onReady: (manifest: Manifest) => void;
@@ -36,8 +37,12 @@ export function Setup({ onReady, existing, onDismiss }: Props) {
   const [failed, setFailed] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [root, setRoot] = useState<string>('');
+  const [spriteInfo, setSpriteInfo] = useState<{ stage: string; done: number; total: number } | null>(
+    null,
+  );
 
   const abort = useRef<AbortController | null>(null);
+  const spriteAbort = useRef<AbortController | null>(null);
 
   const fetchIndex = useCallback(async () => {
     setStage('index');
@@ -101,12 +106,42 @@ export function Setup({ onReady, existing, onDismiss }: Props) {
         durations = await probeAll(entries, (done, total) => setProbe({ done, total }));
       }
 
-      const final: Manifest = {
+      let final: Manifest = {
         ...planned,
         clips: planned.clips.map((c) =>
           durations.has(c.id) ? { ...c, duration: durations.get(c.id)! } : c,
         ),
       };
+
+      // Sprites are cosmetic. They get their own stage, they can be skipped,
+      // and a failure here must never cost the user a working library.
+      setStage('sprites');
+      setSpriteInfo(null);
+      spriteAbort.current = new AbortController();
+      try {
+        const result = await buildSprites(final, setSpriteInfo, spriteAbort.current.signal);
+        final = {
+          ...final,
+          clips: final.clips.map((c) => {
+            const meta = result.soundMeta[c.id];
+            return {
+              ...c,
+              sprite: result.sprites[c.id] ?? c.sprite,
+              soundId: meta?.soundId ?? c.soundId,
+              configName: meta?.configName ?? c.configName,
+            };
+          }),
+        };
+
+        if (result.downloads.length) {
+          setSpriteInfo({ stage: 'Downloading artwork', done: 0, total: result.downloads.length });
+          await runDownload(result.downloads, (p) =>
+            setSpriteInfo({ stage: 'Downloading artwork', done: p.done, total: p.total }),
+          );
+        }
+      } catch {
+        // Skipped or unreachable — every clip just falls back to a tile.
+      }
 
       // Written last, so a manifest on disk always means a usable library.
       await saveManifest(final);
@@ -250,6 +285,31 @@ export function Setup({ onReady, existing, onDismiss }: Props) {
               {probe ? `${formatCount(probe.done)} of ${formatCount(probe.total)}` : 'Starting…'}
               {failed > 0 && ` · ${formatCount(failed)} files could not be downloaded`}
             </p>
+          </>
+        )}
+
+        {stage === 'sprites' && (
+          <>
+            <p className="lede">Matching sounds to wiki artwork…</p>
+            <div className="bar">
+              <div
+                className="fill"
+                style={{
+                  width: `${((spriteInfo?.done ?? 0) / Math.max(spriteInfo?.total ?? 1, 1)) * 100}%`,
+                }}
+              />
+            </div>
+            <p className="fine">
+              {spriteInfo
+                ? `${spriteInfo.stage} · ${formatCount(spriteInfo.done)} of ${formatCount(spriteInfo.total)}`
+                : 'Reading the wiki’s sound index…'}
+            </p>
+            <p className="fine dim">
+              Optional — skipping just leaves every pad with a generated tile.
+            </p>
+            <button className="ghost" onClick={() => spriteAbort.current?.abort()}>
+              Skip artwork
+            </button>
           </>
         )}
 

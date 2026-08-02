@@ -1,6 +1,6 @@
 [package]
 name = "scape-soundboard"
-version = "0.1.0"
+version = "0.2.0"
 description = "OSRS Soundboard"
 authors = ["mikeyd433"]
 edition = "2021"
@@ -23,6 +23,7 @@ serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 futures-util = "0.3"
 tokio = { version = "1", features = ["fs", "io-util"] }
+tauri-plugin-drag = "2"
 
 [features]
 # This feature is used for production builds where `devUrl` points to the filesystem.

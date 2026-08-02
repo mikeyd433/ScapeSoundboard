@@ -131,6 +131,15 @@ export function Header({
           ))}
         </select>
 
+        {tab === 'board' && (
+          <Toggle
+            label="Drag from pad"
+            title="Drag a file out from anywhere on a pad, not just the grab handle"
+            checked={settings.gestureDrag}
+            onChange={(v) => onSettings({ gestureDrag: v })}
+          />
+        )}
+
         <Toggle
           label="Search all tabs"
           title="Match across both tabs instead of just this one"

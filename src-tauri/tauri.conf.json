@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "OSRS Soundboard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.dabingabongo.scapesoundboard",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -25,7 +25,9 @@
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: http://asset.localhost data: blob: https://oldschool.runescape.wiki; media-src 'self' asset: http://asset.localhost blob: https://oldschool.runescape.wiki; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost https://oldschool.runescape.wiki",
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/**"]
+        "scope": [
+          "$APPDATA/**"
+        ]
       }
     }
   },

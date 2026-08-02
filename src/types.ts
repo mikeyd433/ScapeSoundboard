@@ -27,9 +27,26 @@ export type Clip = {
   duration: number | null;
   sha1: string;
 
-  /** Populated by the sprite pass (spec §7), which is a later phase. */
+  /** In-game config name and sound id from Template:Sound effect license.
+   *  Sound ids are not unique per file, so never key anything by them. */
   soundId: number | null;
   configName: string | null;
+
+  /** Wiki artwork for this clip, or null to fall back to a generated tile. */
+  sprite: SpriteInfo | null;
+};
+
+export type SpriteInfo = {
+  /** Relative path under the library root, e.g. `sprites/abyssal-whip.png`. */
+  file: string;
+  /** Remote thumbnail URL — used before the local copy exists. */
+  url: string;
+  /** Source article, e.g. "Abyssal whip". */
+  subject: string;
+  /** Other articles using this same sound. `Equip fun.wav` has dozens. */
+  alternates: string[];
+  source: 'sfxline' | 'filename' | 'manual';
+  confidence: 'high' | 'medium' | 'low';
 };
 
 export type Manifest = {
@@ -41,7 +58,8 @@ export type Manifest = {
   groups: Record<string, string[]>;
 };
 
-export const MANIFEST_VERSION = 1;
+/** Bumped to 2 when sprite metadata joined the schema. */
+export const MANIFEST_VERSION = 2;
 
 export type Settings = {
   /** Jingles at or under this many seconds also appear on the soundboard. */
@@ -53,6 +71,8 @@ export type Settings = {
   musicVolume: number;
   padSize: number;
   searchAll: boolean;
+  /** Drag from anywhere on a pad, not just the grab handle (spec §8, B). */
+  gestureDrag: boolean;
 };
 
 export type DurationFilter = 'any' | 'lt2' | '2to8' | '8to60' | 'gt60';
@@ -94,4 +114,5 @@ export const DEFAULT_SETTINGS: Settings = {
   musicVolume: 0.7,
   padSize: 116,
   searchAll: false,
+  gestureDrag: false,
 };

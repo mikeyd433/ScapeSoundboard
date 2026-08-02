@@ -4,7 +4,7 @@ import type { Kind } from '../types';
 const API = 'https://oldschool.runescape.wiki/api.php';
 
 /** Weird Gloop 403s generic user agents (spec §2). Identify the project. */
-const UA = 'osrs-soundboard/0.1 (https://github.com/mikeyd433/ScapeSoundboard)';
+const UA = 'osrs-soundboard/0.2 (https://github.com/mikeyd433/ScapeSoundboard)';
 
 export const CATS: Record<Kind, string> = {
   sfx: 'Category:Sound effect files',
@@ -25,6 +25,38 @@ export type RawFile = {
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Serial calls with a courteous gap. Every wiki request goes through here. */
+export async function api<T = unknown>(
+  params: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+  const p = new URLSearchParams({ format: 'json', formatversion: '2', ...params });
+  const res = await fetch(`${API}?${p}`, { headers: { 'User-Agent': UA } });
+  if (!res.ok) throw new Error(`Wiki API returned HTTP ${res.status}`);
+  const json = (await res.json()) as T;
+  await sleep(200);
+  return json;
+}
+
+/** MediaWiki caps multi-title queries at 50 for anonymous clients. */
+export const TITLE_BATCH = 50;
+
+export function batched<T>(items: T[], size = TITLE_BATCH): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/** Wiki filenames use underscores interchangeably with spaces. */
+export function normFile(name: string): string {
+  return name
+    .replace(/^File:/i, '')
+    .replace(/_/g, ' ')
+    .trim()
+    .toLowerCase();
+}
 
 export type ListProgress = (info: { kind: Kind; batch: number; count: number }) => void;
 

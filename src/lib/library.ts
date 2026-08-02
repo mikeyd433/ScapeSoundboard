@@ -2,7 +2,14 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { join, sep } from '@tauri-apps/api/path';
 import { exists, mkdir, readDir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 
-import { KINDS, MANIFEST_VERSION, type Clip, type Kind, type Manifest } from '../types';
+import {
+  KINDS,
+  MANIFEST_VERSION,
+  type Clip,
+  type Kind,
+  type Manifest,
+  type SpriteInfo,
+} from '../types';
 import { extensionOf, listCategory, parseName, slugify, type RawFile } from './wiki';
 
 const MANIFEST_FILE = 'manifest.json';
@@ -43,6 +50,7 @@ function toClip(raw: RawFile, kind: Kind): Clip {
     sha1: raw.sha1,
     soundId: null,
     configName: null,
+    sprite: null,
   };
 }
 
@@ -181,8 +189,7 @@ export async function loadManifest(): Promise<Manifest | null> {
 export async function scanLocalFiles(): Promise<Set<string>> {
   const root = await libraryRoot();
   const present = new Set<string>();
-  for (const kind of KINDS) {
-    const dir = `audio/${kind}`;
+  for (const dir of [...KINDS.map((k) => `audio/${k}`), 'sprites']) {
     try {
       const full = await join(root, dir);
       if (!(await exists(full))) continue;
@@ -196,7 +203,11 @@ export async function scanLocalFiles(): Promise<Set<string>> {
   return present;
 }
 
-export type UrlResolver = (clip: Clip) => string;
+export type UrlResolver = {
+  (clip: Clip): string;
+  /** Any library-relative path, e.g. a sprite under `sprites/`. */
+  path(rel: string): string;
+};
 
 /**
  * Builds a synchronous clip -> URL function.
@@ -210,15 +221,43 @@ export async function makeResolver(present: Set<string>): Promise<UrlResolver> {
   const s = sep();
   const base = root.endsWith(s) ? root.slice(0, -s.length) : root;
 
-  return (clip: Clip) => {
-    if (clip.file && present.has(clip.file)) {
-      return convertFileSrc(`${base}${s}${clip.file.split('/').join(s)}`);
-    }
+  const toUrl = (rel: string) => convertFileSrc(`${base}${s}${rel.split('/').join(s)}`);
+
+  const resolver = ((clip: Clip) => {
+    if (clip.file && present.has(clip.file)) return toUrl(clip.file);
     // Not on disk: stream it from the wiki.
     return clip.remoteUrl;
-  };
+  }) as UrlResolver;
+
+  resolver.path = toUrl;
+  return resolver;
 }
 
 export function isLocal(clip: Clip, present: Set<string>): boolean {
   return !!clip.file && present.has(clip.file);
+}
+
+/* ----------------------------------------------------------- overrides ---- */
+
+const OVERRIDES_FILE = 'sprite-overrides.json';
+
+/** Manual "change icon" picks, keyed by clip id (spec §7, manual override). */
+export async function loadOverrides(): Promise<Record<string, SpriteInfo>> {
+  try {
+    const path = await join(await libraryRoot(), OVERRIDES_FILE);
+    if (!(await exists(path))) return {};
+    return JSON.parse(await readTextFile(path)) as Record<string, SpriteInfo>;
+  } catch {
+    return {};
+  }
+}
+
+export async function saveOverrides(overrides: Record<string, SpriteInfo>): Promise<void> {
+  try {
+    const root = await libraryRoot();
+    if (!(await exists(root))) await mkdir(root, { recursive: true });
+    await writeTextFile(await join(root, OVERRIDES_FILE), JSON.stringify(overrides, null, 2));
+  } catch {
+    // An override that fails to persist still applies for this session.
+  }
 }

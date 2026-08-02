@@ -43,36 +43,69 @@ between tracks. Variant chips swap the playing source in place.
 Both tabs share the master bus, so a music track can run under the soundboard
 while you fire effects over it.
 
+**Boards.** Saved pad layouts, 4×4 or 8×8, named and switched with `Alt+1`–`9`.
+Slots 1–16 are bound to the number and QWERTY rows, so a board plays from the
+keyboard. Add pads by right-clicking any pad on the *All sounds* view. Layouts
+are rearranged in an explicit *Edit layout* mode, which keeps arranging and
+playing from fighting over the same gesture.
+
+**Sprites.** Sounds are matched to wiki artwork in the spec's four tiers: the
+`Template:SFXLine` reverse index first, since the wiki states the sound →
+article link explicitly; then filename derivation with every guess verified
+against a real article; then article artwork by icon naming convention and a
+scored image list; then a generated colour-hashed tile for whatever is left.
+Right-click → *Change icon* searches the wiki inline and pins a manual
+override. This stage is optional and skippable — it is cosmetic, and a failure
+never costs you a working library.
+
+**Drag-out.** Drag a sound into REAPER, Resolve, Explorer or Discord. There is
+a grab handle in the corner of each pad and on library rows; *Drag from pad*
+turns on the whole-pad gesture, which fires the sound on press and starts the
+drag once you move. Files are staged under their pretty display names — nobody
+wants `a7f3c2-abyssal-whip.ogg` on their timeline — via hard links, so it costs
+no disk and no time. Ctrl-click to select several pads and drag them all at
+once. Only clips stored locally can be dragged; streamed music has no file to
+give.
+
 **Search.** Always present at the top. `/` or `Ctrl+F` focuses it. A leading
 `cat:` token filters category — `cat:jingle level` finds level-up jingles.
 Filters for current-only (on by default, which collapses 8-bit reworks and
-v1/v2 revisions), length, and favourites.
+v1/v2 revisions), length, and favourites. Sound effects also carry their
+in-game sound id and config name, so `energydrain` finds its effect.
 
 **Esc** clears a live search if one is running, and otherwise stops every
 voice instantly.
 
 ## Not built yet
 
-The spec runs to eight phases; this is phases 1–3 with a trimmed phase 1.
-Deliberately absent:
+The spec runs to eight phases; this is phases 1–6, with phase 1 trimmed so
+music streams rather than filling 7 GB. Deliberately absent:
 
-- **Drag-out to other apps** (spec §8) — needs `tauri-plugin-drag` and a
-  hardlinked staging directory.
-- **Wiki sprite matching** (spec §7) — every clip currently gets a generated
-  colour-hashed tile, which is tier 4 of the spec's four-tier plan. The
-  `SFXLine` reverse index and wiki artwork are not wired up.
-- **Saved boards, keyboard bindings, MIDI** (spec phases 4 and 7).
-- **`soundId` / `configName`** are carried in the manifest schema but never
-  populated, so searching by in-game sound ID does nothing yet.
+- **MIDI** (spec phase 7). Web MIDI in a WebView2 host is untested territory
+  and there is no way to verify it without hardware.
+- **Drag-out format conversion** (spec §8, *Format conversion*). Files are
+  handed over in their original format. WAV and MP3 conversion wants an ffmpeg
+  sidecar, and shipping an untested transcoder that could quietly corrupt a
+  file landing on someone's timeline is worse than not shipping one.
+- **Phase 8 stretch goals** — output recording, REAPER track templates, the
+  step sequencer.
 
 ## Development
 
 ```bash
 npm install
 npm run app:dev      # Tauri dev window with hot reload
+npm test             # unit tests for the parsing and board logic
 npm run build        # typecheck + vite build (frontend only)
 npm run app:build    # full installer for the current platform
+
+cd src-tauri && cargo test --lib   # path-safety and filename tests
 ```
+
+The tests cover the parts that are subtly wrong-able and impossible to eyeball:
+the variant whitelist (`(Dragon Slayer)` is context to keep, `(Fossil Island)`
+is a variant to strip, and they are structurally identical), the `SFXLine`
+wikitext scraping, board slot maths, and the drag-staging path safety.
 
 On Linux you need the usual Tauri system dependencies (`libgtk-3-dev`,
 `libwebkit2gtk-4.1-dev`, `libsoup-3.0-dev`).
@@ -116,6 +149,15 @@ A few places where this departs from the spec, and why:
 - **URL resolution is synchronous.** Tauri's `join` is an IPC round trip, and a
   pad press must never wait on one. The library root and path separator are
   resolved once at load, and everything after that is string concatenation.
+
+- **Board layouts are rearranged in an explicit edit mode.** The spec wants
+  drag-to-reorder on a board and a native file drag off a pad. Those are the
+  same gesture on the same element, so rather than guess at the user's intent
+  mid-drag, arranging is a mode you turn on.
+
+- **Drag state resets on pointer-down, not pointer-up.** Once the OS drag loop
+  takes over, the webview stops receiving pointer events and `pointerup` may
+  never arrive. Every fresh press is the reliable place to start clean.
 
 ## Distribution
 

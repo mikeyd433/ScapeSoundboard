@@ -37,6 +37,15 @@ jobs:
 
       - run: npm ci
 
+      - name: Frontend tests and typecheck
+        run: |
+          npm test
+          npm run build
+
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test --lib
+
       - name: Build installers
         run: npm run tauri -- build --target x86_64-pc-windows-msvc --bundles nsis,msi
 

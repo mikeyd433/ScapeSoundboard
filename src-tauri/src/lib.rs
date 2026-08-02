@@ -265,18 +265,215 @@ fn library_size(app: AppHandle) -> Result<u64, String> {
     Ok(walk(&dir))
 }
 
+/* ------------------------------------------------------------- drag-out ---- */
+
+/// Fallback drag preview, used whenever a clip has no sprite of its own.
+const DEFAULT_DRAG_ICON: &[u8] = include_bytes!("../icons/32x32.png");
+
+const DRAGCACHE: &str = "dragcache";
+
+#[derive(Debug, Deserialize)]
+pub struct StageItem {
+    /// Library-relative path of the real file, e.g. `audio/sfx/ab12-whip.wav`.
+    pub src: String,
+    /// The pretty name to hand the receiving app, e.g. `Whip attack.wav`.
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DragPayload {
+    /// One entry per requested item, in order. `None` where the source file was
+    /// missing — positional, so the caller can still line results up with input.
+    pub files: Vec<Option<String>>,
+    pub icon: String,
+}
+
+/// Windows rejects these outright and they would break the path elsewhere.
+fn sanitize_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0' => '-',
+            c => c,
+        })
+        .collect();
+    let trimmed = cleaned.trim().trim_matches('.').to_string();
+    if trimmed.is_empty() {
+        "clip".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn ensure_drag_icon(dir: &Path) -> Result<PathBuf, String> {
+    let path = dir.join("_icon.png");
+    if !path.exists() {
+        std::fs::write(&path, DEFAULT_DRAG_ICON).map_err(|e| e.to_string())?;
+    }
+    Ok(path)
+}
+
+/// Materialise nicely-named copies of clips for a native drag.
+///
+/// On disk the library uses slugs, but nobody wants `a7f3c2-abyssal-whip.ogg`
+/// landing on their timeline. Hard links make this effectively free — same
+/// volume, zero bytes — with a copy as the fallback.
+#[tauri::command]
+fn stage_drag_files(
+    app: AppHandle,
+    items: Vec<StageItem>,
+    icon: Option<String>,
+) -> Result<DragPayload, String> {
+    let root = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("no app data dir: {e}"))?;
+    let cache = root.join(DRAGCACHE);
+    std::fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
+
+    let mut files = Vec::with_capacity(items.len());
+    for item in &items {
+        let src = safe_join(&root, &item.src)?;
+        if !src.exists() {
+            files.push(None);
+            continue;
+        }
+        let dest = cache.join(sanitize_filename(&item.name));
+
+        // Reuse an identical staging file from earlier in this session.
+        let reusable = match (std::fs::metadata(&dest), std::fs::metadata(&src)) {
+            (Ok(d), Ok(s)) => d.len() == s.len(),
+            _ => false,
+        };
+        if !reusable {
+            let _ = std::fs::remove_file(&dest);
+            if std::fs::hard_link(&src, &dest).is_err() {
+                std::fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+            }
+        }
+
+        // The OS needs a real, absolute filesystem path — an asset:// URL is no use.
+        let canonical = dunce_canonicalize(&dest);
+        files.push(Some(canonical.to_string_lossy().into_owned()));
+    }
+
+    let icon_path = icon
+        .and_then(|rel| safe_join(&root, &rel).ok())
+        .filter(|p| p.exists())
+        .unwrap_or(ensure_drag_icon(&cache)?);
+
+    Ok(DragPayload {
+        files,
+        icon: dunce_canonicalize(&icon_path).to_string_lossy().into_owned(),
+    })
+}
+
+/// `canonicalize` on Windows yields a `\\?\` extended path that some apps choke
+/// on, so strip that prefix when it is safe to do so.
+fn dunce_canonicalize(path: &Path) -> PathBuf {
+    match std::fs::canonicalize(path) {
+        Ok(p) => {
+            let s = p.to_string_lossy();
+            match s.strip_prefix(r"\\?\") {
+                Some(stripped) if !stripped.starts_with("UNC\\") => PathBuf::from(stripped),
+                _ => p,
+            }
+        }
+        Err(_) => path.to_path_buf(),
+    }
+}
+
+/// Swept at startup rather than after a drop: there is no reliable way to know
+/// when the receiving application has finished reading the file.
+#[tauri::command]
+fn sweep_dragcache(app: AppHandle) -> Result<u32, String> {
+    let root = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("no app data dir: {e}"))?;
+    let cache = root.join(DRAGCACHE);
+    if !cache.exists() {
+        return Ok(0);
+    }
+    let mut removed = 0;
+    if let Ok(entries) = std::fs::read_dir(&cache) {
+        for entry in entries.flatten() {
+            if entry.file_type().map(|t| t.is_file()).unwrap_or(false)
+                && std::fs::remove_file(entry.path()).is_ok()
+            {
+                removed += 1;
+            }
+        }
+    }
+    Ok(removed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_join_accepts_ordinary_relative_paths() {
+        let root = Path::new("/lib");
+        assert_eq!(
+            safe_join(root, "audio/sfx/ab12-whip.wav").unwrap(),
+            PathBuf::from("/lib/audio/sfx/ab12-whip.wav")
+        );
+    }
+
+    #[test]
+    fn safe_join_rejects_traversal_and_absolute_paths() {
+        let root = Path::new("/lib");
+        assert!(safe_join(root, "../../etc/passwd").is_err());
+        assert!(safe_join(root, "audio/../../secret").is_err());
+        assert!(safe_join(root, "/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn sanitize_filename_strips_characters_windows_rejects() {
+        assert_eq!(sanitize_filename("Whip attack.wav"), "Whip attack.wav");
+        assert_eq!(sanitize_filename("a/b\\c:d*e?f\"g<h>i|j"), "a-b-c-d-e-f-g-h-i-j");
+    }
+
+    #[test]
+    fn sanitize_filename_keeps_the_punctuation_osrs_actually_uses() {
+        // Apostrophes, bangs, commas and ellipses are all legal in a filename
+        // and are exactly what these files are full of.
+        assert_eq!(
+            sanitize_filename("A New Champion! (Champion's Challenge).ogg"),
+            "A New Champion! (Champion's Challenge).ogg"
+        );
+        assert_eq!(
+            sanitize_filename("Bell (Prifddinas, Ithell).wav"),
+            "Bell (Prifddinas, Ithell).wav"
+        );
+    }
+
+    #[test]
+    fn sanitize_filename_never_returns_something_unusable() {
+        assert_eq!(sanitize_filename(""), "clip");
+        assert_eq!(sanitize_filename("   "), "clip");
+        assert_eq!(sanitize_filename("..."), "clip");
+        // A name that is only separators must not collapse into a traversal.
+        assert_eq!(sanitize_filename("/"), "-");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_drag::init())
         .manage(CancelFlag::default())
         .invoke_handler(tauri::generate_handler![
             download_clips,
             cancel_download,
             library_root,
-            library_size
+            library_size,
+            stage_drag_files,
+            sweep_dragcache
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

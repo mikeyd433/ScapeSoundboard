@@ -1,4 +1,5 @@
 import { load, type Store } from '@tauri-apps/plugin-store';
+import type { Board } from './boards';
 import { DEFAULT_SETTINGS, type PadSetting, type Settings } from '../types';
 
 const FILE = 'settings.json';
@@ -75,6 +76,26 @@ export async function loadVariantChoices(): Promise<Record<string, string>> {
 export async function saveVariantChoices(choices: Record<string, string>): Promise<void> {
   try {
     (await store()).set('variants', choices);
+  } catch {
+    /* ignore */
+  }
+}
+
+export type BoardsState = { boards: Board[]; activeId: string | null };
+
+export async function loadBoards(): Promise<BoardsState> {
+  try {
+    const saved = await (await store()).get<BoardsState>('boards');
+    if (!saved || !Array.isArray(saved.boards)) return { boards: [], activeId: null };
+    return saved;
+  } catch {
+    return { boards: [], activeId: null };
+  }
+}
+
+export async function saveBoards(state: BoardsState): Promise<void> {
+  try {
+    (await store()).set('boards', state);
   } catch {
     /* ignore */
   }
