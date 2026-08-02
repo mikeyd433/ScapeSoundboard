@@ -158,6 +158,37 @@ describe('guessSubjects', () => {
     expect(c.indexOf('hellcat')).toBeLessThan(c.indexOf('cat'));
   });
 
+  it('sees past a take number to the action word behind it', () => {
+    // "Aldarin bear growl 03": the trailing number kept "growl" from ever being
+    // at the end, so nothing was stripped and "bear" never surfaced at all.
+    const bear = guessSubjects('Aldarin bear growl 03.ogg');
+    expect(bear).toContain('bear');
+    expect(bear).not.toContain('growl');
+    expect(bear).not.toContain('03');
+
+    expect(guessSubjects('Aldarin vineyard locusts loop1.ogg')).toContain('locusts');
+    expect(guessSubjects('Alpaca baa 01.ogg')).toContain('Alpaca');
+  });
+
+  it('treats the last word as the subject, not the place it lives in', () => {
+    // These names are "<place or owner> <thing>", and the thing is the subject.
+    const bear = guessSubjects('Aldarin bear growl 03.ogg');
+    expect(bear.indexOf('bear')).toBeLessThan(bear.indexOf('Aldarin'));
+
+    const pork = guessSubjects('Aldarin porcupine growl 04.ogg');
+    expect(pork.indexOf('porcupine')).toBeLessThan(pork.indexOf('Aldarin'));
+  });
+
+  it('never offers an action word on its own', () => {
+    // They resolve to real articles, so as candidates they verify and then win.
+    for (const name of ['Alpaca death 01.ogg', 'Akd xamphur bind player.ogg']) {
+      const c = guessSubjects(name).map((x) => x.toLowerCase());
+      expect(c).not.toContain('death');
+      expect(c).not.toContain('player');
+      expect(c).not.toContain('bind');
+    }
+  });
+
   it('does not offer connecting words on their own', () => {
     expect(guessSubjects('100 cat into hellcat.ogg')).not.toContain('into');
     expect(guessSubjects('100 cauldron shake loop.ogg')).not.toContain('loop');
@@ -175,7 +206,7 @@ describe('guessSubjects', () => {
   });
 
   it('bounds how many candidates one file contributes', () => {
-    expect(guessSubjects('a very long engine sound name here.ogg').length).toBeLessThanOrEqual(6);
+    expect(guessSubjects('a very long engine sound name here.ogg').length).toBeLessThanOrEqual(10);
   });
 });
 

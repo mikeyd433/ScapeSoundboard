@@ -127,7 +127,14 @@ const ACTIONS =
 const LEADING_ID = /^\d+[a-z]?\s+/i;
 
 /** How many candidates one filename may contribute, to bound the API cost. */
-const MAX_CANDIDATES = 6;
+const MAX_CANDIDATES = 10;
+
+/**
+ * Numbered takes of the same sound: `Aldarin bear growl 03`,
+ * `Aldarin vineyard locusts loop1`, `Alpaca baa 02`. Stripping these is what
+ * lets the action word behind them be recognised.
+ */
+const TRAILING_INDEX = /[\s\-_]+(?:loop|part|v|no)?\d{1,3}$/i;
 
 /**
  * Words that are never the entity. Filtered out of single-word candidates only
@@ -137,6 +144,10 @@ const STOPWORDS = new Set([
   'the', 'and', 'for', 'into', 'onto', 'out', 'off', 'from', 'with', 'over',
   'under', 'first', 'second', 'third', 'loop', 'work', 'wprk', 'initial',
   'new', 'old', 'big', 'small', 'long', 'short', 'start', 'stop', 'end',
+  // Actions and generic game words. They name real articles, which makes them
+  // worse than useless as candidates: they verify, and then win.
+  'attack', 'hit', 'death', 'growl', 'noise', 'player', 'defend', 'heal',
+  'spawn', 'bind', 'swing', 'raise', 'down', 'up', 'open', 'close',
 ]);
 
 /**
@@ -159,7 +170,15 @@ export function guessSubjects(filename: string): string[] {
   // file to dodge one pathological case costs hundreds of real matches.
   n = n.replace(/^Equip\s+/i, '');
   n = n.replace(LEADING_ID, '');
-  n = n.replace(ACTIONS, '').trim();
+
+  // Peel take numbers and action words together, repeatedly. `Aldarin bear
+  // growl 03` needs the "03" gone before "growl" is even at the end, and one
+  // pass in a fixed order would only ever remove one of them.
+  for (let prev = ''; prev !== n; ) {
+    prev = n;
+    n = n.replace(TRAILING_INDEX, '').trim();
+    n = n.replace(ACTIONS, '').trim();
+  }
 
   const words = n.split(/\s+/).filter(Boolean);
   const out: string[] = [];
@@ -175,12 +194,15 @@ export function guessSubjects(filename: string): string[] {
   // "100 iron door open underwater" is about an iron door.
   for (let i = 1; i + 1 < words.length; i++) add(`${words[i]} ${words[i + 1]}`);
 
-  // Then single words, longest first. Length is a decent proxy for how
-  // distinctive a word is, and it is what makes "100 cat into hellcat" resolve
-  // to Hellcat rather than to Cat.
-  for (const w of [...words].sort((a, b) => b.length - a.length)) {
-    if (!STOPWORDS.has(w.toLowerCase())) add(w);
-  }
+  // Then single words. The last one goes first: these names are overwhelmingly
+  // "<place or owner> <thing>" — Aldarin bear, Aldarin porcupine, Alpaca baa —
+  // and the thing is the subject while the prefix is just where it lives.
+  // Remaining words follow longest-first, since length is a rough proxy for how
+  // distinctive a word is.
+  const singles = words.filter((w) => !STOPWORDS.has(w.toLowerCase()));
+  const last = singles[singles.length - 1];
+  if (last) add(last);
+  for (const w of [...singles].sort((a, b) => b.length - a.length)) add(w);
 
   return out.slice(0, MAX_CANDIDATES);
 }
